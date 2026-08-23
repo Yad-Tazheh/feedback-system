@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>حذف</title>
+</head>
+<body>
+
+<h1>حذف مورد</h1>
+
+<p>آیا مطمئن هستید که می‌خواهید این مورد را حذف کنید؟</p>
+
+<p>{{ item.title }}</p>
+
+<form method="post">
+    {% csrf_token %}
+    <button type="submit">بله، حذف کن</button>
+</form>
+
+<a href="{% url 'request_list' %}">انصراف</a>
+
+</body>
+</html>

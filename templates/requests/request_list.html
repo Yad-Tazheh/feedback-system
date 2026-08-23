@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>درخواست‌ها</title>
+</head>
+<body>
+
+<h1>درخواست‌ها، انتقادات و پیشنهادات</h1>
+
+<a href="{% url 'request_create' %}">
+    <button type="button">ثبت جدید</button>
+</a>
+
+
+<table border="1">
+    <thead>
+        <tr>
+            <th>نوع</th>
+            <th>عنوان</th>
+            <th>متن</th>
+            <th>تاریخ ثبت</th>
+        </tr>
+    </thead>
+
+    <tbody>
+        {% for item in requests %}
+        <tr>
+            <td>{{ item.get_type_display }}</td>
+            <td>{{ item.title }}</td>
+            <td>{{ item.text }}</td>
+            <td>{{ item.created_at }}</td>
+            <td>
+                <a href="{% url 'request_update' item.pk %}">
+                    ویرایش
+                </a>
+
+                <a href="{% url 'request_delete' item.pk %}">
+                    حذف
+                </a>
+
+            </td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="4">هنوز موردی ثبت نشده است.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+</body>
+</html>

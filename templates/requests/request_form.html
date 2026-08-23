@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>ثبت درخواست</title>
+</head>
+<body>
+
+<h1>ثبت درخواست، انتقاد یا پیشنهاد</h1>
+
+<form method="post">
+    {% csrf_token %}
+
+    {{ form.as_p }}
+
+    <button type="submit">ثبت</button>
+</form>
+
+<a href="{% url 'request_list' %}">بازگشت</a>
+
+</body>
+</html>
