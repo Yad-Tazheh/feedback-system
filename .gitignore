@@ -1,23 +1,16 @@
-# Virtual Environment
 .venv/
 venv/
 env/
 
-# Environment variables
 .env
 
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-
-# Django
-db.sqlite3
-*.log
-
-# PyCharm
 .idea/
 
-# OS
+__pycache__/
+*.py[cod]
+*.log
+
+db.sqlite3
+
 .DS_Store
 Thumbs.db

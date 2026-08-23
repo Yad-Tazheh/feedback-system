@@ -1,0 +1,19 @@
+[project]
+name = "01-feedback-system"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "admin", email = "tazhehyad@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "django>=6.1",
+]
+
+[project.scripts]
+01-feedback-system = "01_feedback_system:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"
