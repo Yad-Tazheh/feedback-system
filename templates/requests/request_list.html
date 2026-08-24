@@ -1,6 +1,38 @@
 <!DOCTYPE html>
 <html lang="fa" dir="rtl">
 <head>
+    <style>
+    .popup-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+
+    .popup {
+        position: relative;
+        background: white;
+        padding: 30px;
+        width: 400px;
+        max-width: 90%;
+        border-radius: 10px;
+        text-align: right;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    }
+
+    .close-btn {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        border: none;
+        background: none;
+        font-size: 24px;
+        cursor: pointer;
+    }
+</style>
     <meta charset="UTF-8">
     <title>درخواست‌ها</title>
 </head>
@@ -48,6 +80,24 @@
         {% endfor %}
     </tbody>
 </table>
+{% if ai_response %}
+<div id="aiPopup" class="popup-overlay">
+    <div class="popup">
+        <button class="close-btn" onclick="closePopup()">×</button>
 
+        <h2>پاسخ سیستم</h2>
+
+        <p>{{ ai_response }}</p>
+
+        <button onclick="closePopup()">متوجه شدم</button>
+    </div>
+</div>
+
+<script>
+    function closePopup() {
+        document.getElementById("aiPopup").style.display = "none";
+    }
+</script>
+{% endif %}
 </body>
 </html>
