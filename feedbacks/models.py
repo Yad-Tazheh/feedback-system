@@ -3,7 +3,7 @@ from django.db import models
 # Create your models here.
 
 
-class Request(models.Model):
+class Feedback(models.Model):
     TYPE_CHOICES = [
         ('request', 'درخواست'),
         ('criticism', 'انتقاد'),

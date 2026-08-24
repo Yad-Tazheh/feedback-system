@@ -40,7 +40,7 @@
 
 <h1>درخواست‌ها، انتقادات و پیشنهادات</h1>
 
-<a href="{% url 'request_create' %}">
+<a href="{% url 'feedback_create' %}">
     <button type="button">ثبت جدید</button>
 </a>
 
@@ -56,18 +56,18 @@
     </thead>
 
     <tbody>
-        {% for item in requests %}
+        {% for item in feedbacks %}
         <tr>
             <td>{{ item.get_type_display }}</td>
             <td>{{ item.title }}</td>
             <td>{{ item.text }}</td>
             <td>{{ item.created_at }}</td>
             <td>
-                <a href="{% url 'request_update' item.pk %}">
+                <a href="{% url 'feedback_update' item.pk %}">
                     ویرایش
                 </a>
 
-                <a href="{% url 'request_delete' item.pk %}">
+                <a href="{% url 'feedback_delete' item.pk %}">
                     حذف
                 </a>
 

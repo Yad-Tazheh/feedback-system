@@ -1,9 +1,9 @@
 from django import forms
 
-from .models import Request
+from .models import Feedback
 
 
 class RequestForm(forms.ModelForm):
     class Meta:
-        model = Request
+        model = Feedback
         fields = ['type', 'title', 'text']
