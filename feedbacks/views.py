@@ -1,6 +1,6 @@
 from django.shortcuts import render, redirect, get_object_or_404
 
-from .forms import RequestForm
+from .forms import FeedbackForm
 from .models import Feedback
 from .services.ai_service import AIService
 
@@ -32,7 +32,7 @@ def feedback_list(request):
 
 def feedback_create(request):
     if request.method == 'POST':
-        form = RequestForm(request.POST)
+        form = FeedbackForm(request.POST)
 
         if form.is_valid():
             item = form.save()
@@ -46,7 +46,7 @@ def feedback_create(request):
             })
 
     else:
-        form = RequestForm()
+        form = FeedbackForm()
 
     return render(request, 'feedbacks/feedback_form.html', {
         'form': form
@@ -57,7 +57,7 @@ def feedback_update(request, pk):
     item = get_object_or_404(Feedback, pk=pk)
 
     if request.method == 'POST':
-        form = RequestForm(
+        form = FeedbackForm(
             request.POST,
             instance=item
         )
@@ -67,7 +67,7 @@ def feedback_update(request, pk):
             return redirect('feedback_list')
 
     else:
-        form = RequestForm(instance=item)
+        form = FeedbackForm(instance=item)
 
     return render(request, 'feedbacks/feedback_form.html', {
         'form': form
