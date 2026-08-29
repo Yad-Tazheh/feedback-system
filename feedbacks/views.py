@@ -6,10 +6,6 @@ from .services.ai_service import AIService
 
 
 def generate_ai_response(item):
-    """
-    گرفتن پاسخ از مدل AI برای یک Feedback
-    """
-
     ai = AIService()
 
     prompt = f"""
@@ -41,7 +37,6 @@ def feedback_create(request):
         if form.is_valid():
             item = form.save()
 
-            # گرفتن پاسخ AI
             item.ai_response = generate_ai_response(item)
             item.save()
 
@@ -69,7 +64,7 @@ def feedback_update(request, pk):
 
         if form.is_valid():
             form.save()
-            return redirect('request_list')
+            return redirect('feedback_list')
 
     else:
         form = RequestForm(instance=item)
@@ -84,7 +79,7 @@ def feedback_delete(request, pk):
 
     if request.method == 'POST':
         item.delete()
-        return redirect('request_list')
+        return redirect('feedback_list')
 
     return render(request, 'feedbacks/feedback_confirm_delete.html', {
         'item': item
