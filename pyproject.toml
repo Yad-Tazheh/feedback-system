@@ -9,6 +9,9 @@ authors = [
 requires-python = ">=3.14"
 dependencies = [
     "django>=6.1",
+    "djangorestframework>=3.18.0",
+    "djangorestframework-stubs>=3.18.1",
+    "drf-spectacular>=0.30.0",
     "python-dotenv>=1.2.3",
     "requests>=2.34.2",
 ]
