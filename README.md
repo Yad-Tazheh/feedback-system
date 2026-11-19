@@ -17,6 +17,7 @@
 <br>
 
 <a href="#-built-with"><img src="docs/assets/fable-5-2.svg" alt="Built in co-op with Fable 5.2" height="64"></a>
+<a href="#-built-with"><img src="docs/assets/ultrareviewed.svg" alt="Ultrareviewed by Fable for bug fixes" height="64"></a>
 
 </div>
 
@@ -223,5 +224,6 @@ The AI calls are mocked, so LM Studio doesn't need to run.
 ## 🤝 Built with
 
 <img src="docs/assets/fable-5-2.svg" alt="Built in co-op with Fable 5.2" height="56">
+<img src="docs/assets/ultrareviewed.svg" alt="Ultrareviewed by Fable for bug fixes" height="56">
 
 Built in co-op with **Fable 5.2**. The AI writes code together with the developer, and every change is reviewed, tested in CI, and must be explainable.
