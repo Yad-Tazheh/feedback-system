@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="420" viewBox="0 0 1280 420" role="img" aria-label="Feedback System: AI replies with a human expert in the loop">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0b1220"/>
+      <stop offset="0.55" stop-color="#111c33"/>
+      <stop offset="1" stop-color="#1a1440"/>
+    </linearGradient>
+    <radialGradient id="glow1" cx="0.82" cy="0.25" r="0.45">
+      <stop offset="0" stop-color="#7c5cff" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#7c5cff" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glow2" cx="0.1" cy="0.95" r="0.5">
+      <stop offset="0" stop-color="#14b8a6" stop-opacity="0.30"/>
+      <stop offset="1" stop-color="#14b8a6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="title" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#c7d2fe"/>
+    </linearGradient>
+    <linearGradient id="ai" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6d5dfc"/>
+      <stop offset="1" stop-color="#8b5cf6"/>
+    </linearGradient>
+    <linearGradient id="expert" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0d9488"/>
+      <stop offset="1" stop-color="#14b8a6"/>
+    </linearGradient>
+    <pattern id="grid" width="32" height="32" patternUnits="userSpaceOnUse">
+      <path d="M32 0H0V32" fill="none" stroke="#ffffff" stroke-opacity="0.04"/>
+    </pattern>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <rect width="1280" height="420" rx="24" fill="url(#bg)"/>
+  <rect width="1280" height="420" rx="24" fill="url(#grid)"/>
+  <rect width="1280" height="420" rx="24" fill="url(#glow1)"/>
+  <rect width="1280" height="420" rx="24" fill="url(#glow2)"/>
+
+  <!-- Left: title -->
+  <g font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif">
+    <rect x="72" y="86" width="196" height="30" rx="15" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.15"/>
+    <circle cx="92" cy="101" r="5" fill="#22c55e"/>
+    <text x="106" y="106" font-size="14" fill="#cbd5e1" letter-spacing="0.5">Django 6.1 · LM Studio</text>
+
+    <text x="70" y="186" font-size="64" font-weight="800" fill="url(#title)" letter-spacing="-1.5">Feedback System</text>
+    <text x="72" y="232" font-size="22" fill="#94a3b8">AI answers first. A human expert steps in</text>
+    <text x="72" y="262" font-size="22" fill="#94a3b8">when it matters.</text>
+
+    <!-- state pills -->
+    <g font-size="14" font-weight="600">
+      <rect x="72" y="306" width="54" height="30" rx="8" fill="#6d5dfc" fill-opacity="0.22" stroke="#8b5cf6" stroke-opacity="0.6"/>
+      <text x="99" y="326" text-anchor="middle" fill="#c4b5fd">ai</text>
+      <text x="138" y="327" fill="#475569" font-size="18">→</text>
+      <rect x="162" y="306" width="136" height="30" rx="8" fill="#f59e0b" fill-opacity="0.15" stroke="#f59e0b" stroke-opacity="0.55"/>
+      <text x="230" y="326" text-anchor="middle" fill="#fcd34d">waiting_expert</text>
+      <text x="310" y="327" fill="#475569" font-size="18">→</text>
+      <rect x="334" y="306" width="126" height="30" rx="8" fill="#14b8a6" fill-opacity="0.15" stroke="#14b8a6" stroke-opacity="0.6"/>
+      <text x="397" y="326" text-anchor="middle" fill="#5eead4">expert_active</text>
+      <text x="472" y="327" fill="#475569" font-size="18">→</text>
+      <rect x="496" y="306" width="74" height="30" rx="8" fill="#64748b" fill-opacity="0.18" stroke="#64748b" stroke-opacity="0.6"/>
+      <text x="533" y="326" text-anchor="middle" fill="#cbd5e1">closed</text>
+    </g>
+  </g>
+
+  <!-- Right: chat card -->
+  <g filter="url(#shadow)">
+    <rect x="740" y="54" width="468" height="312" rx="20" fill="#0f172a" stroke="#ffffff" stroke-opacity="0.10"/>
+  </g>
+  <g font-family="Segoe UI, Tahoma, -apple-system, Helvetica, Arial, sans-serif">
+    <!-- window bar -->
+    <circle cx="768" cy="80" r="6" fill="#ef4444" fill-opacity="0.8"/>
+    <circle cx="788" cy="80" r="6" fill="#f59e0b" fill-opacity="0.8"/>
+    <circle cx="808" cy="80" r="6" fill="#22c55e" fill-opacity="0.8"/>
+    <text x="974" y="85" font-size="13" fill="#64748b" text-anchor="middle">conversation #42 · request</text>
+    <line x1="740" y1="102" x2="1208" y2="102" stroke="#ffffff" stroke-opacity="0.07"/>
+
+    <!-- user bubble (RTL, Persian UI) -->
+    <rect x="928" y="120" width="256" height="44" rx="14" fill="#1e293b"/>
+    <text x="1170" y="148" font-size="16" fill="#e2e8f0" text-anchor="start" direction="rtl">سفارشم هنوز نرسیده، کمک کنید</text>
+    <text x="1184" y="180" font-size="11" fill="#64748b" text-anchor="end">user</text>
+
+    <!-- AI bubble -->
+    <rect x="764" y="190" width="236" height="44" rx="14" fill="url(#ai)"/>
+    <text x="782" y="218" font-size="15" fill="#ffffff">Checking your order status…</text>
+    <text x="764" y="250" font-size="11" fill="#a5b4fc">assistant · 128 tokens</text>
+
+    <!-- expert bubble -->
+    <rect x="764" y="262" width="250" height="44" rx="14" fill="url(#expert)"/>
+    <text x="782" y="290" font-size="15" fill="#ffffff">Expert here, I've taken over.</text>
+    <text x="764" y="322" font-size="11" fill="#5eead4">expert · claimed from queue</text>
+
+    <!-- input -->
+    <rect x="764" y="332" width="420" height="22" rx="11" fill="#1e293b" fill-opacity="0.8"/>
+    <text x="780" y="347" font-size="11" fill="#475569">Type a message… or start with @expert</text>
+  </g>
+</svg>
