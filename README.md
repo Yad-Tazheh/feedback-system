@@ -7,7 +7,7 @@
 ![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)
 ![Django](https://img.shields.io/badge/Django-6.1-092E20?logo=django&logoColor=white)
 ![LM Studio](https://img.shields.io/badge/LLM-LM%20Studio-6d5dfc)
-![Tests](https://img.shields.io/badge/tests-86%20passing-22c55e)
+[![CI](https://github.com/Yad-Tazheh/feedback-system/actions/workflows/ci.yml/badge.svg)](https://github.com/Yad-Tazheh/feedback-system/actions/workflows/ci.yml)
 ![uv](https://img.shields.io/badge/managed%20by-uv-DE5FE9)
 
 **Users open a conversation, a local LLM replies, and a human expert can take over the chat at any time.**
