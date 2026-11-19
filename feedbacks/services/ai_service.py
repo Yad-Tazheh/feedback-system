@@ -100,6 +100,8 @@ class AIService:
                 raise TypeError("Response root must be a dictionary")
             choices = data["choices"]
             content = choices[0]["message"]["content"]
+            if not isinstance(content, str):
+                raise TypeError("message content must be a string")
         except (KeyError, IndexError, TypeError, ValueError) as exc:
             raise AIServiceError(f"Malformed response from AI service: {exc}") from exc
 

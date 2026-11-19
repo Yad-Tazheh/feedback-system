@@ -1681,3 +1681,100 @@ class TokenConstraintSprint06Tests(TestCase):
             )
 
 
+
+
+class ReviewFixesTests(TestCase):
+    def setUp(self):
+        group, _ = Group.objects.get_or_create(name='experts')
+        self.owner = User.objects.create_user(username='rf_owner', password='password')
+        self.expert_a = User.objects.create_user(username='rf_a', password='password')
+        self.expert_b = User.objects.create_user(username='rf_b', password='password')
+        self.expert_a.groups.add(group)
+        self.expert_b.groups.add(group)
+
+    def test_stale_claim_is_rejected(self):
+        conv = Conversation.objects.create(
+            owner=self.owner, type='request', title='Race',
+            status=Conversation.Status.WAITING_EXPERT,
+        )
+        stale = Conversation.objects.get(pk=conv.pk)
+        conv.transition_to(Conversation.Status.EXPERT_ACTIVE, self.expert_a)
+        with self.assertRaises(ValidationError):
+            stale.transition_to(Conversation.Status.EXPERT_ACTIVE, self.expert_b)
+        conv.refresh_from_db()
+        self.assertEqual(conv.expert, self.expert_a)
+        self.assertEqual(stale.status, Conversation.Status.WAITING_EXPERT)
+
+    def test_transition_does_not_overwrite_other_fields(self):
+        conv = Conversation.objects.create(
+            owner=self.owner, type='request', title='Old title',
+        )
+        stale = Conversation.objects.get(pk=conv.pk)
+        Conversation.objects.filter(pk=conv.pk).update(title='New title')
+        stale.transition_to(Conversation.Status.WAITING_EXPERT, self.owner)
+        conv.refresh_from_db()
+        self.assertEqual(conv.title, 'New title')
+        self.assertEqual(conv.status, Conversation.Status.WAITING_EXPERT)
+
+    def test_claim_view_race_shows_message_not_500(self):
+        conv = Conversation.objects.create(
+            owner=self.owner, type='request', title='Race view',
+            status=Conversation.Status.WAITING_EXPERT,
+        )
+        self.client.force_login(self.expert_b)
+        original = Conversation.transition_to
+
+        def claim_first(instance, new_status, by_user, save=True):
+            Conversation.objects.filter(pk=instance.pk).update(
+                status=Conversation.Status.EXPERT_ACTIVE, expert=self.expert_a,
+            )
+            return original(instance, new_status, by_user, save)
+
+        with patch.object(Conversation, 'transition_to', claim_first):
+            response = self.client.post(reverse('conversation_claim', args=[conv.pk]))
+        self.assertEqual(response.status_code, 302)
+        conv.refresh_from_db()
+        self.assertEqual(conv.expert, self.expert_a)
+        levels = [m.level_tag for m in get_messages(response.wsgi_request)]
+        self.assertEqual(levels, ['error'])
+
+    @patch('feedbacks.views.create_ai_reply')
+    def test_expertise_word_does_not_request_expert(self, mock_reply):
+        conv = Conversation.objects.create(owner=self.owner, type='request', title='Word')
+        self.client.force_login(self.owner)
+        self.client.post(reverse('conversation_detail', args=[conv.pk]), {'content': '@expertise needed?'})
+        conv.refresh_from_db()
+        self.assertEqual(conv.status, Conversation.Status.AI)
+        mock_reply.assert_called_once()
+
+    @patch('feedbacks.views.create_ai_reply')
+    def test_expert_mention_case_insensitive(self, mock_reply):
+        conv = Conversation.objects.create(owner=self.owner, type='request', title='Mention')
+        self.client.force_login(self.owner)
+        self.client.post(reverse('conversation_detail', args=[conv.pk]), {'content': '  @Expert please'})
+        conv.refresh_from_db()
+        self.assertEqual(conv.status, Conversation.Status.WAITING_EXPERT)
+        mock_reply.assert_not_called()
+
+    @patch('feedbacks.services.ai_service.requests.post')
+    def test_null_ai_content_raises_service_error(self, mock_post):
+        mock_post.return_value = Mock(
+            status_code=200,
+            raise_for_status=Mock(),
+            json=Mock(return_value={'choices': [{'message': {'content': None}}]}),
+        )
+        service = AIService()
+        service.url, service.model = 'http://example.invalid/v1/chat/completions', 'm'
+        with self.assertRaises(AIServiceError):
+            service.generate([{'role': 'user', 'content': 'hi'}])
+
+    def test_failed_message_hides_raw_error(self):
+        conv = Conversation.objects.create(owner=self.owner, type='request', title='Leak')
+        Message.objects.create(
+            conversation=conv, role=Message.Role.ASSISTANT, content='',
+            ai_status=Message.AIStatus.FAILED,
+            ai_error="HTTPConnectionPool(host='10.1.2.3', port=1234)",
+        )
+        self.client.force_login(self.owner)
+        response = self.client.get(reverse('conversation_detail', args=[conv.pk]))
+        self.assertNotContains(response, '10.1.2.3')

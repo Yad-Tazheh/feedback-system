@@ -153,7 +153,7 @@
         </div>
         <div class="message-content">
             {% if msg.ai_status == 'failed' %}
-                <span style="color: red;">خطا در دریافت پاسخ هوش مصنوعی: {{ msg.ai_error }}</span>
+                <span style="color: red;">خطا در دریافت پاسخ هوش مصنوعی. لطفاً بعداً دوباره تلاش کنید.</span>
             {% else %}
                 {{ msg.content }}
             {% endif %}

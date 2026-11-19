@@ -1,6 +1,16 @@
+import re
+
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.db import models
+from django.utils import timezone
+
+EXPERT_MENTION_RE = re.compile(r'@expert\b', re.IGNORECASE)
+
+
+def is_expert_mention(text):
+    """True when a message starts with the '@expert' keyword (not '@experts', '@expertise', ...)."""
+    return bool(EXPERT_MENTION_RE.match(text.strip()))
 
 
 class ConversationQuerySet(models.QuerySet):
@@ -85,6 +95,8 @@ class Conversation(models.Model):
 
         from feedbacks.permissions import is_expert
 
+        old_status, old_expert_id = self.status, self.expert_id
+
         # Closed is a terminal state
         if self.status == self.Status.CLOSED:
             raise ValidationError(
@@ -134,7 +146,16 @@ class Conversation(models.Model):
             )
 
         if save:
-            self.save()
+            # Conditional write: only succeeds if nobody changed the state since we read it
+            # (e.g. two experts claiming at once), and touches only the workflow fields.
+            now = timezone.now()
+            updated = type(self).objects.filter(
+                pk=self.pk, status=old_status, expert_id=old_expert_id,
+            ).update(status=self.status, expert_id=self.expert_id, updated_at=now)
+            if not updated:
+                self.status, self.expert_id = old_status, old_expert_id
+                raise ValidationError("وضعیت گفتگو هم‌زمان تغییر کرده است. لطفاً صفحه را تازه کنید.")
+            self.updated_at = now
 
 
 class Message(models.Model):

@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="360" height="96" viewBox="0 0 360 96" role="img" aria-label="Ultrareviewed by Fable for bug fixes">
+  <defs>
+    <linearGradient id="ubg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e1033"/>
+      <stop offset="1" stop-color="#2e1065"/>
+    </linearGradient>
+    <linearGradient id="umark" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c084fc"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+  </defs>
+  <rect x="1" y="1" width="358" height="94" rx="20" fill="url(#ubg)" stroke="#a855f7" stroke-opacity="0.55" stroke-width="1.5"/>
+
+  <!-- mark: magnifier with a check -->
+  <g transform="translate(22 18)">
+    <rect width="60" height="60" rx="16" fill="url(#umark)"/>
+    <circle cx="27" cy="27" r="13" fill="none" stroke="#faf5ff" stroke-width="4"/>
+    <path d="M36.5 36.5L46 46" stroke="#faf5ff" stroke-width="5" stroke-linecap="round"/>
+    <path d="M21 27.5l4.5 4.5 8-9" fill="none" stroke="#faf5ff" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <g font-family="Segoe UI, -apple-system, BlinkMacSystemFont, Helvetica, Arial, sans-serif">
+    <text x="100" y="40" font-size="14" fill="#c4b5fd" letter-spacing="1.2">ULTRAREVIEWED BY</text>
+    <text x="99" y="74" font-size="30" font-weight="800" fill="#faf5ff" letter-spacing="-0.5">Fable <tspan font-size="18" font-weight="600" fill="#d8b4fe">· bug fixes</tspan></text>
+  </g>
+</svg>

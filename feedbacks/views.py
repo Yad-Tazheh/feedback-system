@@ -2,6 +2,7 @@ from django.contrib import messages
 from django.contrib.auth import login
 from django.contrib.auth.forms import UserCreationForm
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.db.models import Count, Q, Sum
 from django.http import Http404
@@ -22,7 +23,7 @@ from .forms import (
     ConversationUpdateForm,
     MessageForm,
 )
-from .models import Conversation, Message
+from .models import Conversation, Message, is_expert_mention
 from .permissions import (
     can_claim,
     can_close,
@@ -67,7 +68,7 @@ class FeedbackCreateView(LoginRequiredMixin, OwnedConversationMixin, CreateView)
 
     def form_valid(self, form):
         text = form.cleaned_data['text']
-        is_at_expert = text.strip().lower().startswith('@expert')
+        is_at_expert = is_expert_mention(text)
         with transaction.atomic():
             conversation = form.save(commit=False)
             conversation.owner = self.request.user
@@ -138,7 +139,7 @@ class ConversationDetailView(LoginRequiredMixin, DetailView):
         form = MessageForm(request.POST)
         if form.is_valid():
             content = form.cleaned_data['content']
-            is_at_expert = content.strip().lower().startswith('@expert')
+            is_at_expert = is_expert_mention(content)
             is_assigned_expert = (
                 self.object.expert_id == request.user.id
                 and is_expert(request.user)
@@ -162,11 +163,14 @@ class ConversationDetailView(LoginRequiredMixin, DetailView):
                         author=request.user,
                         content=content,
                     )
-                    if is_at_expert and self.object.status == Conversation.Status.AI:
+                if is_at_expert and self.object.status == Conversation.Status.AI:
+                    try:
                         self.object.transition_to(
                             Conversation.Status.WAITING_EXPERT,
                             request.user,
                         )
+                    except ValidationError as exc:
+                        messages.error(request, exc.messages[0])
 
                 # AI reply only when status is ai and not addressing expert
                 if not is_at_expert and self.object.status == Conversation.Status.AI:
@@ -219,44 +223,48 @@ class ExpertQueueView(LoginRequiredMixin, ListView):
         return context
 
 
-class RequestExpertView(LoginRequiredMixin, View):
+class ConversationTransitionView(LoginRequiredMixin, View):
+    """POST-only workflow action: permission check, then a guarded state transition."""
+    permission = None
+    target_status = None
+    success_message = ''
+
     def post(self, request, pk):
         conv = get_object_or_404(Conversation, pk=pk)
-        if not can_request_expert(request.user, conv):
-            raise Http404("Cannot request expert for this conversation.")
-        conv.transition_to(Conversation.Status.WAITING_EXPERT, request.user)
-        messages.success(request, 'درخواست ارتباط با کارشناس ثبت شد.')
+        if not self.permission(request.user, conv):
+            raise Http404("Action not allowed for this conversation.")
+        try:
+            conv.transition_to(self.target_status, request.user)
+        except ValidationError as exc:
+            # State changed after the permission check (e.g. another expert claimed first).
+            messages.error(request, exc.messages[0])
+        else:
+            messages.success(request, self.success_message)
         return redirect('conversation_detail', pk=conv.pk)
 
 
-class ClaimConversationView(LoginRequiredMixin, View):
-    def post(self, request, pk):
-        conv = get_object_or_404(Conversation, pk=pk)
-        if not can_claim(request.user, conv):
-            raise Http404("Cannot claim this conversation.")
-        conv.transition_to(Conversation.Status.EXPERT_ACTIVE, request.user)
-        messages.success(request, 'گفتگو توسط شما پذیرفته شد.')
-        return redirect('conversation_detail', pk=conv.pk)
+class RequestExpertView(ConversationTransitionView):
+    permission = staticmethod(can_request_expert)
+    target_status = Conversation.Status.WAITING_EXPERT
+    success_message = 'درخواست ارتباط با کارشناس ثبت شد.'
 
 
-class ReleaseConversationView(LoginRequiredMixin, View):
-    def post(self, request, pk):
-        conv = get_object_or_404(Conversation, pk=pk)
-        if not can_release(request.user, conv):
-            raise Http404("Cannot release this conversation.")
-        conv.transition_to(Conversation.Status.AI, request.user)
-        messages.success(request, 'گفتگو به هوش مصنوعی ارجاع داده شد.')
-        return redirect('conversation_detail', pk=conv.pk)
+class ClaimConversationView(ConversationTransitionView):
+    permission = staticmethod(can_claim)
+    target_status = Conversation.Status.EXPERT_ACTIVE
+    success_message = 'گفتگو توسط شما پذیرفته شد.'
 
 
-class CloseConversationView(LoginRequiredMixin, View):
-    def post(self, request, pk):
-        conv = get_object_or_404(Conversation, pk=pk)
-        if not can_close(request.user, conv):
-            raise Http404("Cannot close this conversation.")
-        conv.transition_to(Conversation.Status.CLOSED, request.user)
-        messages.success(request, 'گفتگو با موفقیت بسته شد.')
-        return redirect('conversation_detail', pk=conv.pk)
+class ReleaseConversationView(ConversationTransitionView):
+    permission = staticmethod(can_release)
+    target_status = Conversation.Status.AI
+    success_message = 'گفتگو به هوش مصنوعی ارجاع داده شد.'
+
+
+class CloseConversationView(ConversationTransitionView):
+    permission = staticmethod(can_close)
+    target_status = Conversation.Status.CLOSED
+    success_message = 'گفتگو با موفقیت بسته شد.'
 
 
 class AIUsageView(LoginRequiredMixin, TemplateView):
