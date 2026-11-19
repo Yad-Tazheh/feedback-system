@@ -1,83 +1,103 @@
-from django.contrib import messages
+from django.db import transaction
 from django.db.models import Count, Q, Sum
 from django.shortcuts import redirect
-from django.urls import reverse_lazy
-from django.utils import timezone
+from django.urls import reverse, reverse_lazy
 from django.views.generic import (
     CreateView,
     DeleteView,
+    DetailView,
     ListView,
     TemplateView,
     UpdateView,
 )
 
-from .forms import FeedbackForm
-from .models import Feedback
-from .services.ai_service import AIService, AIServiceError
+from .forms import (
+    ConversationCreateForm,
+    ConversationUpdateForm,
+    MessageForm,
+)
+from .models import Conversation, Message
+from .services.replies import create_ai_reply
 
 
 class FeedbackListView(ListView):
-    model = Feedback
+    model = Conversation
     template_name = 'feedbacks/feedback_list.html'
-    context_object_name = 'feedbacks'
-    ordering = ['-created_at']
+    context_object_name = 'conversations'
+
+    def get_queryset(self):
+        return (
+            Conversation.objects
+            .annotate(message_count=Count('messages'))
+            .order_by('-created_at')
+        )
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context['feedbacks'] = context['conversations']
+        return context
 
 
 class FeedbackCreateView(CreateView):
-    model = Feedback
-    form_class = FeedbackForm
+    model = Conversation
+    form_class = ConversationCreateForm
     template_name = 'feedbacks/feedback_form.html'
     success_url = reverse_lazy('feedback_list')
 
     def form_valid(self, form):
-        self.object = form.save()
+        with transaction.atomic():
+            conversation = form.save()
+            Message.objects.create(
+                conversation=conversation,
+                role=Message.Role.USER,
+                content=form.cleaned_data['text'],
+            )
 
-        ai = AIService()
-        try:
-            result = ai.generate(self.object.as_messages())
-            self.object.ai_response = result.content
-            self.object.ai_model = result.model or ''
-            self.object.prompt_tokens = result.prompt_tokens
-            self.object.completion_tokens = result.completion_tokens
-            self.object.cached_tokens = result.cached_tokens
-            self.object.total_tokens = result.total_tokens
-            self.object.ai_status = 'ok'
-            self.object.ai_error = ''
-            self.object.ai_responded_at = timezone.now()
-            self.object.save()
-            messages.success(self.request, result.content)
-        except AIServiceError as exc:
-            self.object.ai_status = 'failed'
-            self.object.ai_error = str(exc)
-            self.object.save()
-            messages.error(
-                self.request,
-                'خطا در برقراری ارتباط با سرویس هوش مصنوعی.'
-            )
-        except Exception as exc:
-            self.object.ai_status = 'failed'
-            self.object.ai_error = str(exc)
-            self.object.save()
-            messages.error(
-                self.request,
-                'خطا در پردازش هوش مصنوعی.'
-            )
+        self.object = conversation
+        create_ai_reply(conversation, request=self.request)
 
         return redirect(self.get_success_url())
 
 
 class FeedbackUpdateView(UpdateView):
-    model = Feedback
-    form_class = FeedbackForm
+    model = Conversation
+    form_class = ConversationUpdateForm
     template_name = 'feedbacks/feedback_form.html'
     success_url = reverse_lazy('feedback_list')
 
 
 class FeedbackDeleteView(DeleteView):
-    model = Feedback
+    model = Conversation
     template_name = 'feedbacks/feedback_confirm_delete.html'
     context_object_name = 'item'
     success_url = reverse_lazy('feedback_list')
+
+
+class ConversationDetailView(DetailView):
+    model = Conversation
+    template_name = 'feedbacks/conversation_detail.html'
+    context_object_name = 'conversation'
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        if 'form' not in context:
+            context['form'] = MessageForm()
+        context['messages_list'] = self.object.messages.all()
+        return context
+
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        form = MessageForm(request.POST)
+        if form.is_valid():
+            with transaction.atomic():
+                Message.objects.create(
+                    conversation=self.object,
+                    role=Message.Role.USER,
+                    content=form.cleaned_data['content'],
+                )
+            create_ai_reply(self.object, request=request)
+            return redirect(reverse('conversation_detail', kwargs={'pk': self.object.pk}))
+        return self.render_to_response(self.get_context_data(form=form))
 
 
 class AIUsageView(TemplateView):
@@ -85,21 +105,13 @@ class AIUsageView(TemplateView):
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        usage = Feedback.objects.aggregate(
+        usage = Message.objects.filter(role=Message.Role.ASSISTANT).aggregate(
             prompt_tokens=Sum('prompt_tokens'),
             completion_tokens=Sum('completion_tokens'),
             cached_tokens=Sum('cached_tokens'),
             total_tokens=Sum('total_tokens'),
-            ok_count=Count('id', filter=Q(ai_status='ok')),
-            failed_count=Count('id', filter=Q(ai_status='failed')),
+            ok_count=Count('id', filter=Q(ai_status=Message.AIStatus.OK)),
+            failed_count=Count('id', filter=Q(ai_status=Message.AIStatus.FAILED)),
         )
         context['usage'] = usage
         return context
-
-
-# Backward-compatible view aliases
-feedback_list = FeedbackListView.as_view()
-feedback_create = FeedbackCreateView.as_view()
-feedback_update = FeedbackUpdateView.as_view()
-feedback_delete = FeedbackDeleteView.as_view()
-ai_usage = AIUsageView.as_view()

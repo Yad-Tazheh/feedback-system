@@ -2,146 +2,263 @@ from unittest.mock import Mock, patch
 from requests.exceptions import ConnectionError, HTTPError, Timeout
 
 from django.contrib.messages import get_messages
-from django.test import TestCase
+from django.db import connection, IntegrityError
+from django.db.migrations.executor import MigrationExecutor
+from django.test import TestCase, TransactionTestCase
 from django.urls import reverse
+from django.utils import timezone
 
-from .forms import FeedbackForm
-from .models import Feedback
+from .forms import (
+    ConversationCreateForm,
+    ConversationUpdateForm,
+    FeedbackForm,
+    MessageForm,
+)
+from .models import Conversation, Message
 from .services.ai_service import AIService, AIServiceError, AIResult
+from .services.replies import create_ai_reply
 
 
-class FeedbackFormTest(TestCase):
+class FormTests(TestCase):
 
-    def test_valid_form(self):
-        form = FeedbackForm({
+    def test_conversation_create_form_valid(self):
+        form = ConversationCreateForm({
             'type': 'request',
             'title': 'عنوان تست',
             'text': 'متن تست',
         })
-
         self.assertTrue(form.is_valid())
 
-    def test_title_is_required(self):
-        form = FeedbackForm({
+    def test_conversation_create_form_title_required(self):
+        form = ConversationCreateForm({
             'type': 'request',
             'title': '',
             'text': 'متن تست',
         })
-
         self.assertFalse(form.is_valid())
         self.assertEqual(
             form.errors['title'][0],
             'لطفاً عنوان را وارد کنید.'
         )
 
-    def test_text_is_required(self):
-        form = FeedbackForm({
+    def test_conversation_create_form_text_required(self):
+        form = ConversationCreateForm({
             'type': 'request',
             'title': 'عنوان تست',
             'text': '',
         })
-
         self.assertFalse(form.is_valid())
         self.assertEqual(
             form.errors['text'][0],
             'لطفاً متن بازخورد را وارد کنید.'
         )
 
-    def test_invalid_type(self):
-        form = FeedbackForm({
+    def test_conversation_create_form_invalid_type(self):
+        form = ConversationCreateForm({
             'type': 'invalid_type',
             'title': 'عنوان تست',
             'text': 'متن تست',
         })
-
         self.assertFalse(form.is_valid())
         self.assertIn('type', form.errors)
 
-    def test_title_max_length(self):
-        form = FeedbackForm({
+    def test_conversation_create_form_title_max_length(self):
+        form = ConversationCreateForm({
             'type': 'request',
             'title': 'a' * 201,
             'text': 'متن تست',
         })
-
         self.assertFalse(form.is_valid())
         self.assertIn('title', form.errors)
 
+    def test_feedback_form_alias(self):
+        self.assertIs(FeedbackForm, ConversationCreateForm)
 
-class FeedbackModelTest(TestCase):
+    def test_conversation_update_form_valid(self):
+        form = ConversationUpdateForm({
+            'type': 'suggestion',
+            'title': 'عنوان ویرایش‌شده',
+        })
+        self.assertTrue(form.is_valid())
 
-    def test_create_feedback(self):
-        feedback = Feedback.objects.create(
+    def test_conversation_update_form_title_required(self):
+        form = ConversationUpdateForm({
+            'type': 'suggestion',
+            'title': '',
+        })
+        self.assertFalse(form.is_valid())
+        self.assertEqual(
+            form.errors['title'][0],
+            'لطفاً عنوان را وارد کنید.'
+        )
+
+    def test_message_form_valid(self):
+        form = MessageForm({'content': 'متن پیام جدید'})
+        self.assertTrue(form.is_valid())
+
+    def test_message_form_content_required(self):
+        form = MessageForm({'content': ''})
+        self.assertFalse(form.is_valid())
+        self.assertEqual(
+            form.errors['content'][0],
+            'لطفاً متن پیام را وارد کنید.'
+        )
+
+
+class ConversationModelTest(TestCase):
+
+    def test_create_conversation(self):
+        conv = Conversation.objects.create(
             type='request',
-            title='عنوان تست',
-            text='متن تست',
+            title='عنوان گفتگو',
+        )
+        self.assertEqual(conv.title, 'عنوان گفتگو')
+        self.assertEqual(conv.type, 'request')
+        self.assertIsNotNone(conv.created_at)
+        self.assertIsNotNone(conv.updated_at)
+        self.assertEqual(str(conv), 'درخواست: عنوان گفتگو')
+
+    def test_cascade_delete(self):
+        conv = Conversation.objects.create(type='request', title='تست حذف آبشاری')
+        Message.objects.create(conversation=conv, role=Message.Role.USER, content='پیام ۱')
+        Message.objects.create(
+            conversation=conv,
+            role=Message.Role.ASSISTANT,
+            content='پیام ۲',
+            ai_status=Message.AIStatus.OK,
+        )
+        self.assertEqual(Message.objects.filter(conversation=conv).count(), 2)
+
+        conv.delete()
+        self.assertEqual(Message.objects.filter(conversation_id=conv.id).count(), 0)
+
+    def test_as_messages_excludes_failed_replies(self):
+        conv = Conversation.objects.create(type='request', title='تست تاریخچه')
+        Message.objects.create(conversation=conv, role=Message.Role.USER, content='سلام')
+        Message.objects.create(
+            conversation=conv,
+            role=Message.Role.ASSISTANT,
+            content='سلام! چطور کمکتون کنم؟',
+            ai_status=Message.AIStatus.OK,
+        )
+        Message.objects.create(conversation=conv, role=Message.Role.USER, content='سؤال من این است')
+        Message.objects.create(
+            conversation=conv,
+            role=Message.Role.ASSISTANT,
+            content='',
+            ai_status=Message.AIStatus.FAILED,
+            ai_error='Timeout',
+        )
+        Message.objects.create(
+            conversation=conv,
+            role=Message.Role.ASSISTANT,
+            content='پاسخ دوم موفق',
+            ai_status=Message.AIStatus.OK,
         )
 
-        self.assertEqual(feedback.title, 'عنوان تست')
-        self.assertEqual(feedback.text, 'متن تست')
-        self.assertEqual(feedback.type, 'request')
+        history = conv.as_messages()
+        self.assertEqual(len(history), 4)
+        self.assertEqual(history[0], {'role': 'user', 'content': 'سلام'})
+        self.assertEqual(history[1], {'role': 'assistant', 'content': 'سلام! چطور کمکتون کنم؟'})
+        self.assertEqual(history[2], {'role': 'user', 'content': 'سؤال من این است'})
+        self.assertEqual(history[3], {'role': 'assistant', 'content': 'پاسخ دوم موفق'})
 
-    def test_created_at_is_set(self):
-        feedback = Feedback.objects.create(
-            type='request',
-            title='عنوان تست',
-            text='متن تست',
+
+class MessageModelTest(TestCase):
+
+    def test_message_ordering_same_timestamp_ordered_by_id(self):
+        conv = Conversation.objects.create(type='request', title='تست ترتیب')
+        now = timezone.now()
+        m1 = Message.objects.create(conversation=conv, role=Message.Role.USER, content='پیام اول')
+        m2 = Message.objects.create(
+            conversation=conv,
+            role=Message.Role.ASSISTANT,
+            content='پیام دوم',
+            ai_status=Message.AIStatus.OK,
         )
+        m3 = Message.objects.create(conversation=conv, role=Message.Role.USER, content='پیام سوم')
 
-        self.assertIsNotNone(feedback.created_at)
+        # Force same timestamp on all messages
+        Message.objects.filter(pk__in=[m1.pk, m2.pk, m3.pk]).update(created_at=now)
 
-    def test_ai_response_is_optional(self):
-        feedback = Feedback.objects.create(
-            type='request',
-            title='عنوان تست',
-            text='متن تست',
+        msgs = list(conv.messages.all())
+        self.assertEqual([m.id for m in msgs], [m1.id, m2.id, m3.id])
+
+    def test_user_message_token_fields_check_constraint(self):
+        conv = Conversation.objects.create(type='request', title='تست قید')
+        # Creating user message with non-null token field should fail constraint
+        with self.assertRaises(IntegrityError):
+            Message.objects.create(
+                conversation=conv,
+                role=Message.Role.USER,
+                content='متن کاربر',
+                prompt_tokens=10,
+            )
+
+    def test_assistant_message_with_tokens_succeeds(self):
+        conv = Conversation.objects.create(type='request', title='تست قید دستیار')
+        msg = Message.objects.create(
+            conversation=conv,
+            role=Message.Role.ASSISTANT,
+            content='متن دستیار',
+            prompt_tokens=10,
+            completion_tokens=20,
+            cached_tokens=5,
+            total_tokens=30,
+            ai_status=Message.AIStatus.OK,
         )
-
-        self.assertIsNone(feedback.ai_response)
-
-    def test_default_ai_status_is_pending(self):
-        feedback = Feedback.objects.create(
-            type='request',
-            title='عنوان تست',
-            text='متن تست',
-        )
-
-        self.assertEqual(feedback.ai_status, 'pending')
-
-    def test_as_messages(self):
-        feedback = Feedback.objects.create(
-            type='request',
-            title='عنوان تستی',
-            text='متن تستی بازخورد',
-        )
-
-        messages = feedback.as_messages()
-        self.assertIsInstance(messages, list)
-        self.assertEqual(len(messages), 1)
-        self.assertEqual(messages[0]['role'], 'user')
-        self.assertIn('عنوان تستی', messages[0]['content'])
-        self.assertIn('متن تستی بازخورد', messages[0]['content'])
+        self.assertEqual(msg.prompt_tokens, 10)
 
 
-class FeedbackViewTest(TestCase):
+class FeedbackListViewTest(TestCase):
 
-    def setUp(self):
-        self.feedback = Feedback.objects.create(
-            type='request',
-            title='عنوان تست',
-            text='متن تست',
-        )
-
-    def test_feedback_list(self):
-        response = self.client.get(
-            reverse('feedback_list')
-        )
-
+    def test_feedback_list_empty(self):
+        response = self.client.get(reverse('feedback_list'))
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'عنوان تست')
+        self.assertContains(response, 'هنوز موردی ثبت نشده است.')
 
-    @patch('feedbacks.views.AIService.generate')
-    def test_feedback_create_post(self, mock_generate):
+    def test_feedback_list_displays_conversations(self):
+        conv = Conversation.objects.create(type='request', title='عنوان تستی گفتگو')
+        Message.objects.create(conversation=conv, role=Message.Role.USER, content='متن پیام اول')
+        response = self.client.get(reverse('feedback_list'))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'عنوان تستی گفتگو')
+        self.assertContains(response, reverse('conversation_detail', args=[conv.pk]))
+
+    def test_feedback_list_num_queries(self):
+        for i in range(5):
+            conv = Conversation.objects.create(
+                type='request',
+                title=f'گفتگو {i}',
+            )
+            Message.objects.create(
+                conversation=conv,
+                role=Message.Role.USER,
+                content=f'پیام {i}',
+            )
+            Message.objects.create(
+                conversation=conv,
+                role=Message.Role.ASSISTANT,
+                content=f'پاسخ {i}',
+                ai_status=Message.AIStatus.OK,
+            )
+
+        with self.assertNumQueries(1):
+            response = self.client.get(reverse('feedback_list'))
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(len(response.context['conversations']), 5)
+            self.assertEqual(response.context['conversations'][0].message_count, 2)
+
+
+class FeedbackCreateViewTest(TestCase):
+
+    def test_feedback_create_get(self):
+        response = self.client.get(reverse('feedback_create'))
+        self.assertEqual(response.status_code, 200)
+        self.assertIsInstance(response.context['form'], ConversationCreateForm)
+
+    @patch('feedbacks.services.replies.AIService.generate')
+    def test_feedback_create_post_success(self, mock_generate):
         mock_generate.return_value = AIResult(
             content='پاسخ تست هوش مصنوعی',
             model='test-model',
@@ -164,24 +281,27 @@ class FeedbackViewTest(TestCase):
 
         self.assertRedirects(response, reverse('feedback_list'))
 
-        feedback = Feedback.objects.get(
-            title='Feedback جدید'
-        )
+        conv = Conversation.objects.get(title='Feedback جدید')
+        self.assertEqual(conv.type, 'request')
 
-        self.assertEqual(feedback.text, 'متن feedback جدید')
-        self.assertEqual(feedback.ai_response, 'پاسخ تست هوش مصنوعی')
-        self.assertEqual(feedback.ai_status, 'ok')
-        self.assertEqual(feedback.ai_model, 'test-model')
-        self.assertEqual(feedback.prompt_tokens, 15)
-        self.assertEqual(feedback.completion_tokens, 25)
-        self.assertEqual(feedback.cached_tokens, 5)
-        self.assertEqual(feedback.total_tokens, 40)
-        self.assertIsNotNone(feedback.ai_responded_at)
+        msgs = list(conv.messages.all())
+        self.assertEqual(len(msgs), 2)
+        self.assertEqual(msgs[0].role, Message.Role.USER)
+        self.assertEqual(msgs[0].content, 'متن feedback جدید')
+
+        self.assertEqual(msgs[1].role, Message.Role.ASSISTANT)
+        self.assertEqual(msgs[1].content, 'پاسخ تست هوش مصنوعی')
+        self.assertEqual(msgs[1].ai_status, Message.AIStatus.OK)
+        self.assertEqual(msgs[1].ai_model, 'test-model')
+        self.assertEqual(msgs[1].prompt_tokens, 15)
+        self.assertEqual(msgs[1].completion_tokens, 25)
+        self.assertEqual(msgs[1].cached_tokens, 5)
+        self.assertEqual(msgs[1].total_tokens, 40)
 
         mock_generate.assert_called_once()
         self.assertContains(response, 'پاسخ تست هوش مصنوعی')
 
-    @patch('feedbacks.views.AIService.generate')
+    @patch('feedbacks.services.replies.AIService.generate')
     def test_feedback_create_post_ai_failure_stores_failure_and_redirects(self, mock_generate):
         mock_generate.side_effect = AIServiceError('LM Studio is down')
 
@@ -197,26 +317,17 @@ class FeedbackViewTest(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertRedirects(response, reverse('feedback_list'))
 
-        feedback = Feedback.objects.get(
-            title='Feedback همراه با خطای AI'
-        )
+        conv = Conversation.objects.get(title='Feedback همراه با خطای AI')
+        msgs = list(conv.messages.all())
+        self.assertEqual(len(msgs), 2)
+        self.assertEqual(msgs[0].role, Message.Role.USER)
+        self.assertEqual(msgs[0].content, 'متن انتقاد')
 
-        self.assertEqual(feedback.ai_status, 'failed')
-        self.assertIn('LM Studio is down', feedback.ai_error)
-        self.assertIsNone(feedback.ai_response)
+        self.assertEqual(msgs[1].role, Message.Role.ASSISTANT)
+        self.assertEqual(msgs[1].ai_status, Message.AIStatus.FAILED)
+        self.assertIn('LM Studio is down', msgs[1].ai_error)
 
-    def test_feedback_create_get(self):
-        response = self.client.get(
-            reverse('feedback_create')
-        )
-
-        self.assertEqual(response.status_code, 200)
-        self.assertIsInstance(
-            response.context['form'],
-            FeedbackForm
-        )
-
-    def test_feedback_create_invalid(self):
+    def test_feedback_create_invalid_post(self):
         response = self.client.post(
             reverse('feedback_create'),
             {
@@ -225,142 +336,182 @@ class FeedbackViewTest(TestCase):
                 'text': 'متن تست',
             }
         )
-
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(
-            Feedback.objects.count(),
-            1
-        )
-        self.assertIn(
-            'title',
-            response.context['form'].errors
+        self.assertEqual(Conversation.objects.count(), 0)
+        self.assertIn('title', response.context['form'].errors)
+
+
+class FeedbackUpdateViewTest(TestCase):
+
+    def setUp(self):
+        self.conv = Conversation.objects.create(
+            type='request',
+            title='عنوان تست',
         )
 
     def test_feedback_update_get(self):
         response = self.client.get(
-            reverse(
-                'feedback_update',
-                args=[self.feedback.pk]
-            )
+            reverse('feedback_update', args=[self.conv.pk])
         )
-
         self.assertEqual(response.status_code, 200)
-        self.assertIsInstance(
-            response.context['form'],
-            FeedbackForm
-        )
+        self.assertIsInstance(response.context['form'], ConversationUpdateForm)
 
     def test_feedback_update_post(self):
         response = self.client.post(
-            reverse(
-                'feedback_update',
-                args=[self.feedback.pk]
-            ),
+            reverse('feedback_update', args=[self.conv.pk]),
             {
                 'type': 'suggestion',
                 'title': 'عنوان جدید',
-                'text': 'متن جدید',
             }
         )
+        self.assertRedirects(response, reverse('feedback_list'))
 
-        self.assertRedirects(
-            response,
-            reverse('feedback_list')
-        )
+        self.conv.refresh_from_db()
+        self.assertEqual(self.conv.type, 'suggestion')
+        self.assertEqual(self.conv.title, 'عنوان جدید')
 
-        self.feedback.refresh_from_db()
 
-        self.assertEqual(
-            self.feedback.type,
-            'suggestion'
-        )
-        self.assertEqual(
-            self.feedback.title,
-            'عنوان جدید'
-        )
-        self.assertEqual(
-            self.feedback.text,
-            'متن جدید'
-        )
+class FeedbackDeleteViewTest(TestCase):
 
-    def test_feedback_update_invalid_pk(self):
-        response = self.client.get(
-            reverse(
-                'feedback_update',
-                args=[9999]
-            )
+    def setUp(self):
+        self.conv = Conversation.objects.create(
+            type='request',
+            title='عنوان تست',
         )
-
-        self.assertEqual(response.status_code, 404)
+        Message.objects.create(conversation=self.conv, role=Message.Role.USER, content='پیام تست')
 
     def test_feedback_delete_get(self):
         response = self.client.get(
-            reverse(
-                'feedback_delete',
-                args=[self.feedback.pk]
-            )
+            reverse('feedback_delete', args=[self.conv.pk])
         )
-
         self.assertEqual(response.status_code, 200)
 
     def test_feedback_delete_post(self):
         response = self.client.post(
-            reverse(
-                'feedback_delete',
-                args=[self.feedback.pk]
-            )
+            reverse('feedback_delete', args=[self.conv.pk])
+        )
+        self.assertRedirects(response, reverse('feedback_list'))
+        self.assertFalse(Conversation.objects.filter(pk=self.conv.pk).exists())
+        self.assertFalse(Message.objects.filter(conversation_id=self.conv.pk).exists())
+
+
+class ConversationDetailViewTest(TestCase):
+
+    def setUp(self):
+        self.conv = Conversation.objects.create(
+            type='request',
+            title='گفتگوی من',
+        )
+        self.initial_msg = Message.objects.create(
+            conversation=self.conv,
+            role=Message.Role.USER,
+            content='پیام اول کاربر',
         )
 
-        self.assertRedirects(
-            response,
-            reverse('feedback_list')
-        )
-
-        self.assertFalse(
-            Feedback.objects.filter(
-                pk=self.feedback.pk
-            ).exists()
-        )
-
-    def test_feedback_delete_invalid_pk(self):
+    def test_conversation_detail_get(self):
         response = self.client.get(
-            reverse(
-                'feedback_delete',
-                args=[9999]
-            )
+            reverse('conversation_detail', args=[self.conv.pk])
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'گفتگوی من')
+        self.assertContains(response, 'پیام اول کاربر')
+        self.assertIsInstance(response.context['form'], MessageForm)
+
+    @patch('feedbacks.services.replies.AIService.generate')
+    def test_conversation_detail_post_user_message_and_ai_reply(self, mock_generate):
+        mock_generate.return_value = AIResult(
+            content='پاسخ دستیار به پیام دوم',
+            model='qwen-test',
+            prompt_tokens=30,
+            completion_tokens=40,
+            cached_tokens=10,
+            total_tokens=70,
+            raw_usage={'prompt_tokens': 30, 'completion_tokens': 40, 'total_tokens': 70},
         )
 
-        self.assertEqual(response.status_code, 404)
+        response = self.client.post(
+            reverse('conversation_detail', args=[self.conv.pk]),
+            {'content': 'پیام دوم کاربر'},
+            follow=True,
+        )
+
+        self.assertRedirects(response, reverse('conversation_detail', args=[self.conv.pk]))
+
+        msgs = list(self.conv.messages.all())
+        self.assertEqual(len(msgs), 3)
+        self.assertEqual(msgs[1].role, Message.Role.USER)
+        self.assertEqual(msgs[1].content, 'پیام دوم کاربر')
+
+        self.assertEqual(msgs[2].role, Message.Role.ASSISTANT)
+        self.assertEqual(msgs[2].content, 'پاسخ دستیار به پیام دوم')
+        self.assertEqual(msgs[2].ai_status, Message.AIStatus.OK)
+        self.assertEqual(msgs[2].total_tokens, 70)
+
+        # Ensure full history was passed to AI
+        mock_generate.assert_called_once()
+        sent_messages = mock_generate.call_args[0][0]
+        self.assertEqual(len(sent_messages), 2)
+        self.assertEqual(sent_messages[0]['content'], 'پیام اول کاربر')
+        self.assertEqual(sent_messages[1]['content'], 'پیام دوم کاربر')
+
+    @patch('feedbacks.services.replies.AIService.generate')
+    def test_conversation_detail_post_ai_failure_stores_failed_and_redirects(self, mock_generate):
+        mock_generate.side_effect = AIServiceError('LM Studio unavailable')
+
+        response = self.client.post(
+            reverse('conversation_detail', args=[self.conv.pk]),
+            {'content': 'پیام کاربر قبل از خطا'},
+        )
+
+        self.assertEqual(response.status_code, 302)
+        self.assertRedirects(response, reverse('conversation_detail', args=[self.conv.pk]))
+
+        msgs = list(self.conv.messages.all())
+        self.assertEqual(len(msgs), 3)
+        self.assertEqual(msgs[1].role, Message.Role.USER)
+        self.assertEqual(msgs[1].content, 'پیام کاربر قبل از خطا')
+
+        self.assertEqual(msgs[2].role, Message.Role.ASSISTANT)
+        self.assertEqual(msgs[2].ai_status, Message.AIStatus.FAILED)
+        self.assertIn('LM Studio unavailable', msgs[2].ai_error)
 
 
 class AIUsageViewTest(TestCase):
 
     def test_usage_page_totals_correct(self):
-        Feedback.objects.create(
-            type='request',
-            title='درخواست ۱',
-            text='متن ۱',
-            ai_status='ok',
+        conv1 = Conversation.objects.create(type='request', title='گفتگو ۱')
+        conv2 = Conversation.objects.create(type='criticism', title='گفتگو ۲')
+
+        # User messages (must NOT be counted in usage)
+        Message.objects.create(conversation=conv1, role=Message.Role.USER, content='متن ۱')
+        Message.objects.create(conversation=conv2, role=Message.Role.USER, content='متن ۲')
+
+        # Assistant messages
+        Message.objects.create(
+            conversation=conv1,
+            role=Message.Role.ASSISTANT,
+            content='پاسخ ۱',
+            ai_status=Message.AIStatus.OK,
             prompt_tokens=100,
             completion_tokens=50,
             cached_tokens=20,
             total_tokens=150,
         )
-        Feedback.objects.create(
-            type='criticism',
-            title='انتقاد ۱',
-            text='متن ۲',
-            ai_status='ok',
+        Message.objects.create(
+            conversation=conv1,
+            role=Message.Role.ASSISTANT,
+            content='پاسخ ۲',
+            ai_status=Message.AIStatus.OK,
             prompt_tokens=200,
             completion_tokens=80,
             cached_tokens=None,
             total_tokens=280,
         )
-        Feedback.objects.create(
-            type='suggestion',
-            title='پیشنهاد ۱',
-            text='متن ۳',
-            ai_status='failed',
+        Message.objects.create(
+            conversation=conv2,
+            role=Message.Role.ASSISTANT,
+            content='',
+            ai_status=Message.AIStatus.FAILED,
             ai_error='Connection timeout',
         )
 
@@ -399,6 +550,12 @@ class AIServiceTest(TestCase):
 
     def tearDown(self):
         self.env_patcher.stop()
+
+    def test_load_prompt_missing_file_raises_ai_service_error(self):
+        with patch('builtins.open', side_effect=OSError('File not found')):
+            with self.assertRaises(AIServiceError) as ctx:
+                AIService()
+            self.assertIn('System prompt file not found', str(ctx.exception))
 
     @patch('feedbacks.services.ai_service.requests.post')
     def test_generate_returns_ai_response(self, mock_post):
@@ -521,13 +678,11 @@ class AIServiceTest(TestCase):
         with self.assertRaises(AIServiceError):
             ai.generate([{'role': 'user', 'content': 'متن تست'}])
 
-        # Test empty choices
         mock_response.json.side_effect = None
         mock_response.json.return_value = {'choices': []}
         with self.assertRaises(AIServiceError):
             ai.generate([{'role': 'user', 'content': 'متن تست'}])
 
-        # Test missing message inside choices
         mock_response.json.return_value = {'choices': [{}]}
         with self.assertRaises(AIServiceError):
             ai.generate([{'role': 'user', 'content': 'متن تست'}])
@@ -568,3 +723,70 @@ class AIServiceTest(TestCase):
         ai.model = None
         with self.assertRaises(AIServiceError):
             ai.generate([{'role': 'user', 'content': 'متن تست'}])
+
+
+class DataMigrationTest(TransactionTestCase):
+
+    def test_migrate_feedback_to_conversation(self):
+        executor = MigrationExecutor(connection)
+        try:
+            # Migrate back to 0002
+            executor.migrate([('feedbacks', '0002_feedback_ai_fields')])
+            old_state = executor.loader.project_state(('feedbacks', '0002_feedback_ai_fields'))
+            Feedback = old_state.apps.get_model('feedbacks', 'Feedback')
+
+            Feedback.objects.create(
+                type='request',
+                title='درخواست قدیمی ۱',
+                text='متن درخواست قدیمی ۱',
+                ai_response='پاسخ قدیمی ۱',
+                ai_model='qwen-old',
+                prompt_tokens=12,
+                completion_tokens=24,
+                cached_tokens=4,
+                total_tokens=36,
+                ai_status='ok',
+            )
+            Feedback.objects.create(
+                type='criticism',
+                title='انتقاد قدیمی ۲',
+                text='متن انتقاد قدیمی ۲',
+                ai_response=None,
+                ai_status='pending',
+            )
+
+            # Migrate forward through 0005
+            executor.loader.build_graph()
+            executor.migrate([('feedbacks', '0005_delete_feedback')])
+            new_state = executor.loader.project_state(('feedbacks', '0005_delete_feedback'))
+            Conversation = new_state.apps.get_model('feedbacks', 'Conversation')
+            Message = new_state.apps.get_model('feedbacks', 'Message')
+
+            self.assertEqual(Conversation.objects.count(), 2)
+
+            conv1 = Conversation.objects.get(title='درخواست قدیمی ۱')
+            self.assertEqual(conv1.type, 'request')
+            conv1_msgs = list(Message.objects.filter(conversation=conv1).order_by('id'))
+            self.assertEqual(len(conv1_msgs), 2)
+            self.assertEqual(conv1_msgs[0].role, 'user')
+            self.assertEqual(conv1_msgs[0].content, 'متن درخواست قدیمی ۱')
+            self.assertEqual(conv1_msgs[1].role, 'assistant')
+            self.assertEqual(conv1_msgs[1].content, 'پاسخ قدیمی ۱')
+            self.assertEqual(conv1_msgs[1].ai_model, 'qwen-old')
+            self.assertEqual(conv1_msgs[1].prompt_tokens, 12)
+            self.assertEqual(conv1_msgs[1].completion_tokens, 24)
+            self.assertEqual(conv1_msgs[1].cached_tokens, 4)
+            self.assertEqual(conv1_msgs[1].total_tokens, 36)
+            self.assertEqual(conv1_msgs[1].ai_status, 'ok')
+
+            conv2 = Conversation.objects.get(title='انتقاد قدیمی ۲')
+            self.assertEqual(conv2.type, 'criticism')
+            conv2_msgs = list(Message.objects.filter(conversation=conv2).order_by('id'))
+            self.assertEqual(len(conv2_msgs), 1)
+            self.assertEqual(conv2_msgs[0].role, 'user')
+            self.assertEqual(conv2_msgs[0].content, 'متن انتقاد قدیمی ۲')
+
+        finally:
+            # Restore latest migration state for test database
+            executor.loader.build_graph()
+            executor.migrate(executor.loader.graph.leaf_nodes())

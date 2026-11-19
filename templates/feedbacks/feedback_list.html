@@ -48,23 +48,23 @@
     <button type="button">گزارش مصرف هوش مصنوعی</button>
 </a>
 
-
 <table border="1">
     <thead>
         <tr>
             <th>نوع</th>
             <th>عنوان</th>
-            <th>متن</th>
+            <th>تعداد پیام‌ها</th>
             <th>تاریخ ثبت</th>
+            <th>عملیات</th>
         </tr>
     </thead>
 
     <tbody>
-        {% for item in feedbacks %}
+        {% for item in conversations %}
         <tr>
             <td>{{ item.get_type_display }}</td>
-            <td>{{ item.title }}</td>
-            <td>{{ item.text }}</td>
+            <td><a href="{% url 'conversation_detail' item.pk %}">{{ item.title }}</a></td>
+            <td>{{ item.message_count }}</td>
             <td>{{ item.created_at }}</td>
             <td>
                 <a href="{% url 'feedback_update' item.pk %}">
@@ -74,16 +74,16 @@
                 <a href="{% url 'feedback_delete' item.pk %}">
                     حذف
                 </a>
-
             </td>
         </tr>
         {% empty %}
         <tr>
-            <td colspan="4">هنوز موردی ثبت نشده است.</td>
+            <td colspan="5">هنوز موردی ثبت نشده است.</td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
+
 {% if messages %}
 <div id="aiPopup" class="popup-overlay">
     <div class="popup">

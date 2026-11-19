@@ -53,18 +53,16 @@ class AIService:
         try:
             with open(prompt_path, "r", encoding="utf-8") as file:
                 return file.read()
-        except OSError:
-            return ""
+        except OSError as exc:
+            raise AIServiceError(
+                f"System prompt file not found or unreadable: {prompt_path}"
+            ) from exc
 
     def generate(self, messages):
         if not self.url or not self.model:
             raise AIServiceError("LM_STUDIO_URL and LM_MODEL must be configured.")
 
-        if isinstance(messages, str):
-            msg_list = [{"role": "user", "content": messages}]
-        else:
-            msg_list = list(messages)
-
+        msg_list = list(messages)
         full_messages = [{"role": "system", "content": self.system_prompt}] + msg_list
 
         payload = {

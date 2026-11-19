@@ -153,21 +153,21 @@ The domain model must avoid duplicating the same information across `Request`, `
 
 ## Tasks
 
-- [ ] Design the conversation domain before implementation.
-- [ ] Introduce a `Conversation` model.
-- [ ] Introduce a `Message` model representing conversation messages.
-- [ ] Define message roles clearly.
-- [ ] Model the relationships between conversations and messages with relational integrity.
-- [ ] Migrate the previous feedback/AI flow toward the conversation architecture where appropriate.
-- [ ] Avoid redundant storage of message content or shared conversation data.
-- [ ] Define ordering semantics for messages.
-- [ ] Add database constraints and indexes where justified.
-- [ ] Query conversation history efficiently.
-- [ ] Build a minimal conversation UI.
-- [ ] Allow a user message to trigger an AI response.
-- [ ] Persist the resulting message(s) correctly.
-- [ ] Test ordering and relational behavior.
-- [ ] Review generated SQL for important queries.
+- [x] Design the conversation domain before implementation.
+- [x] Introduce a `Conversation` model.
+- [x] Introduce a `Message` model representing conversation messages.
+- [x] Define message roles clearly.
+- [x] Model the relationships between conversations and messages with relational integrity.
+- [x] Migrate the previous feedback/AI flow toward the conversation architecture where appropriate.
+- [x] Avoid redundant storage of message content or shared conversation data.
+- [x] Define ordering semantics for messages.
+- [x] Add database constraints and indexes where justified.
+- [x] Query conversation history efficiently.
+- [x] Build a minimal conversation UI.
+- [x] Allow a user message to trigger an AI response.
+- [x] Persist the resulting message(s) correctly.
+- [x] Test ordering and relational behavior.
+- [x] Review generated SQL for important queries.
 - [ ] Open a pull request and resolve review feedback.
 
 ## Engineering Focus
@@ -184,11 +184,11 @@ The domain model must avoid duplicating the same information across `Request`, `
 
 ## Investigation Questions
 
-- [ ] What should be a model and what should be an attribute?
-- [ ] Which data is duplicated and why is that a problem?
-- [ ] Where should AI-specific metadata live?
-- [ ] How should message order be guaranteed?
-- [ ] Which queries require `select_related`, `prefetch_related`, aggregation, or explicit indexing?
+- [x] What should be a model and what should be an attribute?
+- [x] Which data is duplicated and why is that a problem?
+- [x] Where should AI-specific metadata live?
+- [x] How should message order be guaranteed?
+- [x] Which queries require `select_related`, `prefetch_related`, aggregation, or explicit indexing?
 
 ## Real-World Readiness
 
@@ -196,11 +196,11 @@ The domain model must avoid duplicating the same information across `Request`, `
 
 ## Sprint Completion Notes
 
-- Status: `Not Started`
-- Review: TBD
-- Main lessons: TBD
-- Schema decisions: TBD
-- Follow-up issues: TBD
+- Status: Done (pending PR review)
+- Review: Pending PR creation and review
+- Main lessons: Separating conversations from messages achieves 3NF normalization and enables clean multi-turn history tracking without data duplication; isolating external AI calls outside database transactions prevents transaction timeouts and connection holding while preserving data integrity; compound ordering with fallback to primary key guarantees deterministic message ordering.
+- Schema decisions: Split the legacy monolithic Feedback table into Conversation (type, title, timestamps) and Message (conversation FK CASCADE, role, content, AI metadata); added composite index on (conversation, created_at) and CheckConstraint enforcing NULL token metrics on user messages; linear data migration (0003 -> 0004 -> 0005) cleanly transitioned existing data and dropped the legacy model.
+- Follow-up issues: PR not opened yet.
 
 ---
 

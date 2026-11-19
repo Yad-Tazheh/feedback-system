@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <style>
+    .popup-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+
+    .popup {
+        position: relative;
+        background: white;
+        padding: 30px;
+        width: 400px;
+        max-width: 90%;
+        border-radius: 10px;
+        text-align: right;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    }
+
+    .close-btn {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        border: none;
+        background: none;
+        font-size: 24px;
+        cursor: pointer;
+    }
+
+    .message-box {
+        margin: 10px 0;
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid #ddd;
+    }
+
+    .message-user {
+        background-color: #f0f7ff;
+        border-color: #bcd4f0;
+    }
+
+    .message-assistant {
+        background-color: #f4fbf4;
+        border-color: #bfe5bf;
+    }
+
+    .message-failed {
+        background-color: #fff2f2;
+        border-color: #f0b8b8;
+    }
+
+    .message-header {
+        font-weight: bold;
+        margin-bottom: 5px;
+        font-size: 0.9em;
+        color: #555;
+    }
+
+    .message-content {
+        white-space: pre-wrap;
+    }
+    </style>
+    <meta charset="UTF-8">
+    <title>{{ conversation.title }}</title>
+</head>
+<body>
+
+<h1>{{ conversation.title }}</h1>
+<p><strong>نوع:</strong> {{ conversation.get_type_display }} | <strong>تاریخ ایجاد:</strong> {{ conversation.created_at }}</p>
+
+<a href="{% url 'feedback_list' %}">بازگشت به لیست گفتگوها</a>
+<hr>
+
+<h2>پیام‌ها</h2>
+<div id="messages-container">
+    {% for msg in messages_list %}
+    <div class="message-box {% if msg.role == 'user' %}message-user{% elif msg.ai_status == 'failed' %}message-failed{% else %}message-assistant{% endif %}">
+        <div class="message-header">
+            {{ msg.get_role_display }} - {{ msg.created_at }}
+            {% if msg.ai_model %} ({{ msg.ai_model }}){% endif %}
+        </div>
+        <div class="message-content">
+            {% if msg.ai_status == 'failed' %}
+                <span style="color: red;">خطا در دریافت پاسخ هوش مصنوعی: {{ msg.ai_error }}</span>
+            {% else %}
+                {{ msg.content }}
+            {% endif %}
+        </div>
+    </div>
+    {% empty %}
+    <p>هیچ پیامی در این گفتگو وجود ندارد.</p>
+    {% endfor %}
+</div>
+
+<hr>
+
+<h3>ارسال پیام جدید</h3>
+<form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">ارسال</button>
+</form>
+
+{% if messages %}
+<div id="aiPopup" class="popup-overlay">
+    <div class="popup">
+        <button class="close-btn" onclick="closePopup()">×</button>
+
+        <h2>پاسخ سیستم</h2>
+
+        {% for message in messages %}
+            <p>{{ message }}</p>
+        {% endfor %}
+
+        <button onclick="closePopup()">متوجه شدم</button>
+    </div>
+</div>
+
+<script>
+    function closePopup() {
+        var popup = document.getElementById("aiPopup");
+        if (popup) {
+            popup.style.display = "none";
+        }
+    }
+</script>
+{% endif %}
+
+</body>
+</html>

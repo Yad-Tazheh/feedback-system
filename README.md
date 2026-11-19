@@ -177,10 +177,10 @@ User
 Django Views
  |
  v
-Feedback Model
+Conversation & Message Models
  |
  v
-AIService
+Replies Service & AIService
  |
  v
 LM Studio API
@@ -189,7 +189,7 @@ LM Studio API
 Local LLM Model
  |
  v
-AI Response
+AI Assistant Message
 ```
 
 ---
@@ -205,7 +205,8 @@ AI Response
 │   ├── urls.py
 │   ├── forms.py
 │   └── services/
-│       └── ai_service.py
+│       ├── ai_service.py
+│       └── replies.py
 │
 ├── config/
 │   └── prompts/
