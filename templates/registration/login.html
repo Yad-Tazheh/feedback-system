@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>ورود</title>
+</head>
+<body>
+
+<h1>ورود به سامانه</h1>
+
+{% if form.errors %}
+<p style="color: red;">نام کاربری یا رمز عبور اشتباه است.</p>
+{% endif %}
+
+<form method="post" action="{% url 'login' %}">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">ورود</button>
+</form>
+
+<p>حساب کاربری ندارید؟ <a href="{% url 'signup' %}">ثبت‌نام کنید</a></p>
+
+</body>
+</html>

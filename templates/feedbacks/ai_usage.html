@@ -8,6 +8,16 @@
 
 <h1>گزارش مصرف و وضعیت هوش مصنوعی</h1>
 
+<div style="margin-bottom: 15px;">
+    {% if user.is_authenticated %}
+        <span>کاربر: <strong>{{ user.username }}</strong></span> |
+        <form method="post" action="{% url 'logout' %}" style="display: inline;">
+            {% csrf_token %}
+            <button type="submit">خروج</button>
+        </form>
+    {% endif %}
+</div>
+
 <table border="1">
     <thead>
         <tr>

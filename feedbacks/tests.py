@@ -1,6 +1,7 @@
 from unittest.mock import Mock, patch
 from requests.exceptions import ConnectionError, HTTPError, Timeout
 
+from django.contrib.auth.models import User
 from django.contrib.messages import get_messages
 from django.db import connection, IntegrityError
 from django.db.migrations.executor import MigrationExecutor
@@ -157,11 +158,22 @@ class ConversationModelTest(TestCase):
         )
 
         history = conv.as_messages()
-        self.assertEqual(len(history), 4)
-        self.assertEqual(history[0], {'role': 'user', 'content': 'سلام'})
-        self.assertEqual(history[1], {'role': 'assistant', 'content': 'سلام! چطور کمکتون کنم؟'})
-        self.assertEqual(history[2], {'role': 'user', 'content': 'سؤال من این است'})
-        self.assertEqual(history[3], {'role': 'assistant', 'content': 'پاسخ دوم موفق'})
+        self.assertEqual(len(history), 5)
+        self.assertEqual(history[0]['role'], 'system')
+        self.assertIn('درخواست', history[0]['content'])
+        self.assertIn('تست تاریخچه', history[0]['content'])
+        self.assertEqual(history[1], {'role': 'user', 'content': 'سلام'})
+        self.assertEqual(history[2], {'role': 'assistant', 'content': 'سلام! چطور کمکتون کنم؟'})
+        self.assertEqual(history[3], {'role': 'user', 'content': 'سؤال من این است'})
+        self.assertEqual(history[4], {'role': 'assistant', 'content': 'پاسخ دوم موفق'})
+
+    def test_as_messages_includes_type_and_title(self):
+        conv = Conversation.objects.create(type='criticism', title='انتقاد تستی')
+        Message.objects.create(conversation=conv, role=Message.Role.USER, content='متن کاربر')
+        msgs = conv.as_messages()
+        self.assertEqual(msgs[0]['role'], 'system')
+        self.assertIn('انتقاد', msgs[0]['content'])
+        self.assertIn('انتقاد تستی', msgs[0]['content'])
 
 
 class MessageModelTest(TestCase):
@@ -212,13 +224,21 @@ class MessageModelTest(TestCase):
 
 class FeedbackListViewTest(TestCase):
 
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='password123')
+        self.client.force_login(self.user)
+
     def test_feedback_list_empty(self):
         response = self.client.get(reverse('feedback_list'))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'هنوز موردی ثبت نشده است.')
 
     def test_feedback_list_displays_conversations(self):
-        conv = Conversation.objects.create(type='request', title='عنوان تستی گفتگو')
+        conv = Conversation.objects.create(
+            owner=self.user,
+            type='request',
+            title='عنوان تستی گفتگو',
+        )
         Message.objects.create(conversation=conv, role=Message.Role.USER, content='متن پیام اول')
         response = self.client.get(reverse('feedback_list'))
         self.assertEqual(response.status_code, 200)
@@ -228,6 +248,7 @@ class FeedbackListViewTest(TestCase):
     def test_feedback_list_num_queries(self):
         for i in range(5):
             conv = Conversation.objects.create(
+                owner=self.user,
                 type='request',
                 title=f'گفتگو {i}',
             )
@@ -243,7 +264,8 @@ class FeedbackListViewTest(TestCase):
                 ai_status=Message.AIStatus.OK,
             )
 
-        with self.assertNumQueries(1):
+        # 3 queries total: session, auth_user, and annotated conversation query (no N+1 queries for message counts)
+        with self.assertNumQueries(3):
             response = self.client.get(reverse('feedback_list'))
             self.assertEqual(response.status_code, 200)
             self.assertEqual(len(response.context['conversations']), 5)
@@ -251,6 +273,10 @@ class FeedbackListViewTest(TestCase):
 
 
 class FeedbackCreateViewTest(TestCase):
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='password123')
+        self.client.force_login(self.user)
 
     def test_feedback_create_get(self):
         response = self.client.get(reverse('feedback_create'))
@@ -282,6 +308,7 @@ class FeedbackCreateViewTest(TestCase):
         self.assertRedirects(response, reverse('feedback_list'))
 
         conv = Conversation.objects.get(title='Feedback جدید')
+        self.assertEqual(conv.owner, self.user)
         self.assertEqual(conv.type, 'request')
 
         msgs = list(conv.messages.all())
@@ -318,6 +345,7 @@ class FeedbackCreateViewTest(TestCase):
         self.assertRedirects(response, reverse('feedback_list'))
 
         conv = Conversation.objects.get(title='Feedback همراه با خطای AI')
+        self.assertEqual(conv.owner, self.user)
         msgs = list(conv.messages.all())
         self.assertEqual(len(msgs), 2)
         self.assertEqual(msgs[0].role, Message.Role.USER)
@@ -344,7 +372,10 @@ class FeedbackCreateViewTest(TestCase):
 class FeedbackUpdateViewTest(TestCase):
 
     def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='password123')
+        self.client.force_login(self.user)
         self.conv = Conversation.objects.create(
+            owner=self.user,
             type='request',
             title='عنوان تست',
         )
@@ -374,7 +405,10 @@ class FeedbackUpdateViewTest(TestCase):
 class FeedbackDeleteViewTest(TestCase):
 
     def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='password123')
+        self.client.force_login(self.user)
         self.conv = Conversation.objects.create(
+            owner=self.user,
             type='request',
             title='عنوان تست',
         )
@@ -398,7 +432,10 @@ class FeedbackDeleteViewTest(TestCase):
 class ConversationDetailViewTest(TestCase):
 
     def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='password123')
+        self.client.force_login(self.user)
         self.conv = Conversation.objects.create(
+            owner=self.user,
             type='request',
             title='گفتگوی من',
         )
@@ -447,12 +484,14 @@ class ConversationDetailViewTest(TestCase):
         self.assertEqual(msgs[2].ai_status, Message.AIStatus.OK)
         self.assertEqual(msgs[2].total_tokens, 70)
 
-        # Ensure full history was passed to AI
+        # Ensure full history and context was passed to AI
         mock_generate.assert_called_once()
         sent_messages = mock_generate.call_args[0][0]
-        self.assertEqual(len(sent_messages), 2)
-        self.assertEqual(sent_messages[0]['content'], 'پیام اول کاربر')
-        self.assertEqual(sent_messages[1]['content'], 'پیام دوم کاربر')
+        self.assertEqual(len(sent_messages), 3)
+        self.assertEqual(sent_messages[0]['role'], 'system')
+        self.assertIn('گفتگوی من', sent_messages[0]['content'])
+        self.assertEqual(sent_messages[1]['content'], 'پیام اول کاربر')
+        self.assertEqual(sent_messages[2]['content'], 'پیام دوم کاربر')
 
     @patch('feedbacks.services.replies.AIService.generate')
     def test_conversation_detail_post_ai_failure_stores_failed_and_redirects(self, mock_generate):
@@ -478,9 +517,13 @@ class ConversationDetailViewTest(TestCase):
 
 class AIUsageViewTest(TestCase):
 
+    def setUp(self):
+        self.user = User.objects.create_user(username='testuser', password='password123')
+        self.client.force_login(self.user)
+
     def test_usage_page_totals_correct(self):
-        conv1 = Conversation.objects.create(type='request', title='گفتگو ۱')
-        conv2 = Conversation.objects.create(type='criticism', title='گفتگو ۲')
+        conv1 = Conversation.objects.create(owner=self.user, type='request', title='گفتگو ۱')
+        conv2 = Conversation.objects.create(owner=self.user, type='criticism', title='گفتگو ۲')
 
         # User messages (must NOT be counted in usage)
         Message.objects.create(conversation=conv1, role=Message.Role.USER, content='متن ۱')
@@ -790,3 +833,168 @@ class DataMigrationTest(TransactionTestCase):
             # Restore latest migration state for test database
             executor.loader.build_graph()
             executor.migrate(executor.loader.graph.leaf_nodes())
+
+
+class AuthenticationAndAuthorizationTest(TestCase):
+
+    def setUp(self):
+        self.user_a = User.objects.create_user(username='user_a', password='password_a')
+        self.user_b = User.objects.create_user(username='user_b', password='password_b')
+        self.conv_a = Conversation.objects.create(
+            owner=self.user_a,
+            type='request',
+            title='گفتگوی کاربر الف',
+        )
+        self.msg_a = Message.objects.create(
+            conversation=self.conv_a,
+            role=Message.Role.USER,
+            content='پیام کاربر الف',
+        )
+
+    def test_anonymous_redirected_to_login_on_all_views(self):
+        routes = [
+            reverse('feedback_list'),
+            reverse('feedback_create'),
+            reverse('feedback_update', args=[self.conv_a.pk]),
+            reverse('feedback_delete', args=[self.conv_a.pk]),
+            reverse('conversation_detail', args=[self.conv_a.pk]),
+            reverse('ai_usage'),
+        ]
+        for url in routes:
+            response = self.client.get(url)
+            self.assertEqual(response.status_code, 302)
+            self.assertIn(reverse('login'), response.url)
+
+    def test_user_b_gets_404_on_user_a_detail(self):
+        self.client.force_login(self.user_b)
+        response = self.client.get(reverse('conversation_detail', args=[self.conv_a.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_user_b_gets_404_on_user_a_post_message(self):
+        self.client.force_login(self.user_b)
+        response = self.client.post(
+            reverse('conversation_detail', args=[self.conv_a.pk]),
+            {'content': 'تلاش برای ارسال پیام غیرمجاز'},
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_user_b_gets_404_on_user_a_update(self):
+        self.client.force_login(self.user_b)
+        response_get = self.client.get(reverse('feedback_update', args=[self.conv_a.pk]))
+        self.assertEqual(response_get.status_code, 404)
+
+        response_post = self.client.post(
+            reverse('feedback_update', args=[self.conv_a.pk]),
+            {'type': 'suggestion', 'title': 'تغییر غیرمجاز'},
+        )
+        self.assertEqual(response_post.status_code, 404)
+
+    def test_user_b_gets_404_on_user_a_delete(self):
+        self.client.force_login(self.user_b)
+        response_get = self.client.get(reverse('feedback_delete', args=[self.conv_a.pk]))
+        self.assertEqual(response_get.status_code, 404)
+
+        response_post = self.client.post(
+            reverse('feedback_delete', args=[self.conv_a.pk])
+        )
+        self.assertEqual(response_post.status_code, 404)
+        self.assertTrue(Conversation.objects.filter(pk=self.conv_a.pk).exists())
+
+    def test_list_shows_only_own_conversations(self):
+        conv_b = Conversation.objects.create(
+            owner=self.user_b,
+            type='criticism',
+            title='گفتگوی کاربر ب',
+        )
+
+        self.client.force_login(self.user_a)
+        response_a = self.client.get(reverse('feedback_list'))
+        self.assertContains(response_a, 'گفتگوی کاربر الف')
+        self.assertNotContains(response_a, 'گفتگوی کاربر ب')
+
+        self.client.force_login(self.user_b)
+        response_b = self.client.get(reverse('feedback_list'))
+        self.assertContains(response_b, 'گفتگوی کاربر ب')
+        self.assertNotContains(response_b, 'گفتگوی کاربر الف')
+
+    @patch('feedbacks.services.replies.AIService.generate')
+    def test_create_sets_owner(self, mock_generate):
+        mock_generate.return_value = AIResult(
+            content='پاسخ هوش مصنوعی',
+            model='test',
+            prompt_tokens=10,
+            completion_tokens=10,
+            cached_tokens=None,
+            total_tokens=20,
+            raw_usage=None,
+        )
+        self.client.force_login(self.user_a)
+        response = self.client.post(
+            reverse('feedback_create'),
+            {'type': 'request', 'title': 'موضوع متعلق به الف', 'text': 'متن کاربر الف'},
+            follow=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        new_conv = Conversation.objects.get(title='موضوع متعلق به الف')
+        self.assertEqual(new_conv.owner, self.user_a)
+
+    def test_usage_totals_per_user(self):
+        Message.objects.create(
+            conversation=self.conv_a,
+            role=Message.Role.ASSISTANT,
+            content='پاسخ الف',
+            total_tokens=120,
+            prompt_tokens=80,
+            completion_tokens=40,
+            ai_status=Message.AIStatus.OK,
+        )
+
+        conv_b = Conversation.objects.create(owner=self.user_b, type='suggestion', title='گفتگو ب')
+        Message.objects.create(
+            conversation=conv_b,
+            role=Message.Role.ASSISTANT,
+            content='پاسخ ب',
+            total_tokens=300,
+            prompt_tokens=200,
+            completion_tokens=100,
+            ai_status=Message.AIStatus.OK,
+        )
+
+        self.client.force_login(self.user_a)
+        resp_a = self.client.get(reverse('ai_usage'))
+        self.assertEqual(resp_a.context['usage']['total_tokens'], 120)
+
+        self.client.force_login(self.user_b)
+        resp_b = self.client.get(reverse('ai_usage'))
+        self.assertEqual(resp_b.context['usage']['total_tokens'], 300)
+
+    def test_signup_creates_user_and_logs_in(self):
+        response = self.client.post(
+            reverse('signup'),
+            {
+                'username': 'newuser123',
+                'password1': 'SecretPass999!',
+                'password2': 'SecretPass999!',
+            },
+        )
+        self.assertRedirects(response, reverse('feedback_list'))
+        self.assertTrue(User.objects.filter(username='newuser123').exists())
+        user = User.objects.get(username='newuser123')
+        self.assertEqual(int(self.client.session['_auth_user_id']), user.pk)
+
+    def test_logout_via_post(self):
+        self.client.force_login(self.user_a)
+        response = self.client.post(reverse('logout'))
+        self.assertRedirects(response, reverse('login'))
+        self.assertNotIn('_auth_user_id', self.client.session)
+
+    def test_ai_context_includes_type_and_title(self):
+        conv = Conversation.objects.create(
+            type='suggestion',
+            title='پیشنهاد برای سامانه',
+        )
+        Message.objects.create(conversation=conv, role=Message.Role.USER, content='پیام اولیه')
+        msgs = conv.as_messages()
+        self.assertEqual(msgs[0]['role'], 'system')
+        self.assertIn('پیشنهاد', msgs[0]['content'])
+        self.assertIn('پیشنهاد برای سامانه', msgs[0]['content'])

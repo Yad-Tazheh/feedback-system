@@ -129,3 +129,12 @@ MAILERS = {
         'BACKEND': 'django.core.mail.backends.console.EmailBackend',
     },
 }
+
+
+# Authentication
+# https://docs.djangoproject.com/en/6.1/ref/settings/#auth
+
+LOGIN_URL = 'login'
+LOGIN_REDIRECT_URL = 'feedback_list'
+LOGOUT_REDIRECT_URL = 'login'
+

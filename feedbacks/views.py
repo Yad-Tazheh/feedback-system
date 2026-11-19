@@ -1,3 +1,6 @@
+from django.contrib.auth import login
+from django.contrib.auth.forms import UserCreationForm
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.db import transaction
 from django.db.models import Count, Q, Sum
 from django.shortcuts import redirect
@@ -20,14 +23,19 @@ from .models import Conversation, Message
 from .services.replies import create_ai_reply
 
 
-class FeedbackListView(ListView):
+class OwnedConversationMixin:
+    def get_queryset(self):
+        return Conversation.objects.filter(owner=self.request.user)
+
+
+class FeedbackListView(LoginRequiredMixin, OwnedConversationMixin, ListView):
     model = Conversation
     template_name = 'feedbacks/feedback_list.html'
     context_object_name = 'conversations'
 
     def get_queryset(self):
         return (
-            Conversation.objects
+            super().get_queryset()
             .annotate(message_count=Count('messages'))
             .order_by('-created_at')
         )
@@ -38,7 +46,7 @@ class FeedbackListView(ListView):
         return context
 
 
-class FeedbackCreateView(CreateView):
+class FeedbackCreateView(LoginRequiredMixin, OwnedConversationMixin, CreateView):
     model = Conversation
     form_class = ConversationCreateForm
     template_name = 'feedbacks/feedback_form.html'
@@ -46,7 +54,9 @@ class FeedbackCreateView(CreateView):
 
     def form_valid(self, form):
         with transaction.atomic():
-            conversation = form.save()
+            conversation = form.save(commit=False)
+            conversation.owner = self.request.user
+            conversation.save()
             Message.objects.create(
                 conversation=conversation,
                 role=Message.Role.USER,
@@ -59,21 +69,21 @@ class FeedbackCreateView(CreateView):
         return redirect(self.get_success_url())
 
 
-class FeedbackUpdateView(UpdateView):
+class FeedbackUpdateView(LoginRequiredMixin, OwnedConversationMixin, UpdateView):
     model = Conversation
     form_class = ConversationUpdateForm
     template_name = 'feedbacks/feedback_form.html'
     success_url = reverse_lazy('feedback_list')
 
 
-class FeedbackDeleteView(DeleteView):
+class FeedbackDeleteView(LoginRequiredMixin, OwnedConversationMixin, DeleteView):
     model = Conversation
     template_name = 'feedbacks/feedback_confirm_delete.html'
     context_object_name = 'item'
     success_url = reverse_lazy('feedback_list')
 
 
-class ConversationDetailView(DetailView):
+class ConversationDetailView(LoginRequiredMixin, OwnedConversationMixin, DetailView):
     model = Conversation
     template_name = 'feedbacks/conversation_detail.html'
     context_object_name = 'conversation'
@@ -100,12 +110,15 @@ class ConversationDetailView(DetailView):
         return self.render_to_response(self.get_context_data(form=form))
 
 
-class AIUsageView(TemplateView):
+class AIUsageView(LoginRequiredMixin, TemplateView):
     template_name = 'feedbacks/ai_usage.html'
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-        usage = Message.objects.filter(role=Message.Role.ASSISTANT).aggregate(
+        usage = Message.objects.filter(
+            role=Message.Role.ASSISTANT,
+            conversation__owner=self.request.user,
+        ).aggregate(
             prompt_tokens=Sum('prompt_tokens'),
             completion_tokens=Sum('completion_tokens'),
             cached_tokens=Sum('cached_tokens'),
@@ -115,3 +128,15 @@ class AIUsageView(TemplateView):
         )
         context['usage'] = usage
         return context
+
+
+class SignUpView(CreateView):
+    form_class = UserCreationForm
+    template_name = 'registration/signup.html'
+    success_url = reverse_lazy('feedback_list')
+
+    def form_valid(self, form):
+        user = form.save()
+        self.object = user
+        login(self.request, user)
+        return redirect(self.get_success_url())

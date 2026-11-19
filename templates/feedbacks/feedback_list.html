@@ -40,6 +40,19 @@
 
 <h1>درخواست‌ها، انتقادات و پیشنهادات</h1>
 
+<div style="margin-bottom: 15px;">
+    {% if user.is_authenticated %}
+        <span>کاربر: <strong>{{ user.username }}</strong></span> |
+        <form method="post" action="{% url 'logout' %}" style="display: inline;">
+            {% csrf_token %}
+            <button type="submit">خروج</button>
+        </form>
+    {% else %}
+        <a href="{% url 'login' %}">ورود</a> |
+        <a href="{% url 'signup' %}">ثبت‌نام</a>
+    {% endif %}
+</div>
+
 <a href="{% url 'feedback_create' %}">
     <button type="button">ثبت جدید</button>
 </a>

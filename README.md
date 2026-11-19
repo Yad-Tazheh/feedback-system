@@ -166,6 +166,8 @@ Open:
 http://127.0.0.1:8000/
 ```
 
+Create an account at `/accounts/signup/` or log in at `/accounts/login/`.
+
 ---
 
 # 🏗 Project Architecture

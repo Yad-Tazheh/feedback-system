@@ -150,3 +150,31 @@ ORDER BY "feedbacks_message"."created_at" ASC,
          "feedbacks_message"."id" ASC;
 ```
 
+-------------------------------------------
+## Sprint 04 — Authentication, Ownership & Admin
+
+### Investigation Questions & Architectural Decisions
+
+#### 1. What is the difference between authentication and authorization?
+- **Authentication (AuthN):** The process of verifying *who* a user is (identity verification, e.g., verifying username and password credentials during login, establishing session cookies).
+- **Authorization (AuthZ):** The process of verifying *what* an authenticated user is permitted to do or access (access control, e.g., ensuring User A cannot read, edit, delete, or append messages to User B's conversations).
+
+#### 2. Where should ownership checks happen?
+Ownership checks must happen at the backend database query boundary (`get_queryset()` in class-based views) rather than relying on template UI hiding or client-side checks. By scoping the query via `Conversation.objects.filter(owner=self.request.user)` inside a shared `OwnedConversationMixin`, the ORM naturally treats any unauthorized ID lookup as a 404 (Not Found), completely eliminating Insecure Direct Object Reference (IDOR) vulnerabilities across detail, update, delete, and message creation endpoints.
+
+#### 3. How can an object-level authorization bug appear even when the UI looks correct?
+An object-level authorization bug (IDOR) occurs when the UI only displays links to resources owned by the current user, but the view fetches records by primary key alone (`Conversation.objects.get(pk=pk)`) without filtering by the authenticated user. An attacker or curious user can simply change the PK in the browser URL bar (e.g. `/c/42/`, `/update/42/`, or `/delete/42/`) and access or manipulate another user's data, bypassing UI restrictions unless the backend view strictly enforces ownership at the query level.
+
+#### 4. When is an abstract base model justified?
+An abstract base model (such as `TimeStampedModel`) is justified when multiple distinct models share identical fields, indexing, and lifecycle behaviors. In our domain, `Conversation` is a mutable entity requiring both `created_at` and `updated_at`, while `Message` represents immutable turn records with only `created_at`. Creating an abstract base for a single model or forcing `updated_at` onto immutable messages would introduce unnecessary abstraction and database bloat without deduplication value. Therefore, explicit timestamp declarations were kept, and an abstract base was deliberately not forced.
+
+#### 5. How should session lifecycle affect application behavior?
+The session lifecycle governs authentication state. When a session expires or a user logs out (via Django 5+ POST-only logout), session data (`_auth_user_id`) is purged, and subsequent requests to protected endpoints immediately redirect to the login URL with `?next=...`. Upon login or signup, a session is initialized (`django.contrib.auth.login`), establishing the request user identity that scopes all downstream conversation ownership queries.
+
+### Session Identity vs. Ownership Decision
+Session identity is ephemeral and browser/device-specific (tied to session cookies with potential expiration or clearance), whereas resource ownership (`Conversation.owner`) represents persistent relational ownership tied to the permanent User identity in the database. Relying solely on session identity for ownership would lose data across device switches or cookie clearings. Therefore, conversations are strictly bound via foreign key to the permanent `AUTH_USER_MODEL`, while sessions authenticate the user making the request.
+
+### Legacy Data Migration Decision
+Migration `0006` introduces `owner` as a nullable foreign key (`null=True, blank=True`). This ensures that legacy conversations created prior to authentication can be preserved without requiring arbitrary placeholder users or data destruction. These legacy unowned conversations remain accessible in Django Admin for administrative auditing while remaining hidden from standard user views.
+
+

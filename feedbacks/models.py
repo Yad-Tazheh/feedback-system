@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 
 
@@ -8,6 +9,13 @@ class Conversation(models.Model):
         ('suggestion', 'پیشنهاد'),
     ]
 
+    owner = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name='conversations',
+        null=True,
+        blank=True,
+    )
     type = models.CharField(max_length=20, choices=TYPE_CHOICES)
     title = models.CharField(max_length=200)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -17,10 +25,15 @@ class Conversation(models.Model):
         return f"{self.get_type_display()}: {self.title}"
 
     def as_messages(self):
-        return [
+        context_message = {
+            'role': 'system',
+            'content': f"نوع پیام: {self.get_type_display()}\nعنوان: {self.title}",
+        }
+        history = [
             {'role': msg.role, 'content': msg.content}
             for msg in self.messages.exclude(ai_status='failed')
         ]
+        return [context_message] + history
 
 
 class Message(models.Model):

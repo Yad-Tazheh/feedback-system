@@ -214,19 +214,19 @@ Each user must be isolated from other users' conversations and resources.
 
 ## Tasks
 
-- [ ] Implement registration.
-- [ ] Implement login and logout using Django authentication.
-- [ ] Handle authenticated sessions correctly.
-- [ ] Introduce ownership for user-owned resources.
-- [ ] Ensure a user can only access their own conversations.
-- [ ] Add appropriate authorization checks at the backend boundary.
-- [ ] Connect the important models to Django Admin.
-- [ ] Configure admin list/search/filter behavior where useful.
-- [ ] Investigate class-based authentication-related views and patterns.
-- [ ] Design reusable abstract model foundations such as timestamp/ownership/full-model bases when justified.
-- [ ] Evaluate whether session identity and conversation ownership need separate concepts.
-- [ ] Add authorization-focused tests.
-- [ ] Verify that direct URL access cannot bypass ownership rules.
+- [x] Implement registration.
+- [x] Implement login and logout using Django authentication.
+- [x] Handle authenticated sessions correctly.
+- [x] Introduce ownership for user-owned resources.
+- [x] Ensure a user can only access their own conversations.
+- [x] Add appropriate authorization checks at the backend boundary.
+- [x] Connect the important models to Django Admin.
+- [x] Configure admin list/search/filter behavior where useful.
+- [x] Investigate class-based authentication-related views and patterns.
+- [x] Design reusable abstract model foundations such as timestamp/ownership/full-model bases when justified.
+- [x] Evaluate whether session identity and conversation ownership need separate concepts.
+- [x] Add authorization-focused tests.
+- [x] Verify that direct URL access cannot bypass ownership rules.
 - [ ] Open a pull request and resolve review feedback.
 
 ## Engineering Focus
@@ -242,11 +242,11 @@ Each user must be isolated from other users' conversations and resources.
 
 ## Investigation Questions
 
-- [ ] What is the difference between authentication and authorization?
-- [ ] Where should ownership checks happen?
-- [ ] How can an object-level authorization bug appear even when the UI looks correct?
-- [ ] When is an abstract base model justified?
-- [ ] How should session lifecycle affect application behavior?
+- [x] What is the difference between authentication and authorization?
+- [x] Where should ownership checks happen?
+- [x] How can an object-level authorization bug appear even when the UI looks correct?
+- [x] When is an abstract base model justified?
+- [x] How should session lifecycle affect application behavior?
 
 ## Real-World Readiness
 
@@ -254,12 +254,12 @@ Each user must be isolated from other users' conversations and resources.
 
 ## Sprint Completion Notes
 
-- Status: `Not Started`
-- PR: TBD
-- Review: TBD
-- Main lessons: TBD
-- Security findings: TBD
-- Follow-up issues: TBD
+- Status: Done (pending PR review)
+- PR: Pending PR creation and review
+- Review: Pending PR creation and review
+- Main lessons: Authorization checks must be strictly enforced at the database query boundary via `get_queryset()` rather than UI visibility; Insecure Direct Object References (IDOR) are prevented when the ORM automatically filters object queries by the authenticated user; POST-only logout in modern Django protects against CSRF-based forced logout attacks.
+- Security findings: Direct URL manipulation (`/c/<pk>/`, `/update/<pk>/`, `/delete/<pk>/`) is completely blocked at the backend query level, returning 404 for unauthorized resources; anonymous users are systematically redirected to login on all views; AI usage totals are strictly isolated per-user.
+- Follow-up issues: PR not opened yet.
 
 ---
 
