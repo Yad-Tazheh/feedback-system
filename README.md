@@ -158,3 +158,7 @@ templates/registration/                  # login, signup, logout pages
 
 - [ROADMAP.md](ROADMAP.md): sprint goals and review notes.
 - [design.md](design.md): design decisions for each sprint.
+
+## Built with
+
+Built in co-op with Fable 5.2: AI pair-programming, with every change reviewed and tested in CI.

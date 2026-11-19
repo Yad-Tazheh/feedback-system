@@ -8,16 +8,15 @@ The project is designed to evolve from a simple feedback system into a real-worl
 
 ## Engineering Rules
 
-1. Backend implementation must be developed from official documentation, technical documentation, source code, and targeted web research rather than by handing the backend code to ChatGPT, coding agents, or other LLMs.
-2. Frontend work may use LLM assistance.
-3. Every sprint must be developed through GitHub using branches, commits, pull requests, review, requested changes, and merge.
-4. `ROADMAP.md` is part of the repository and must be updated as each sprint progresses.
-5. Every sprint must contain a concise implementation/review log in this file or in a linked project document.
-6. Backend decisions must be explainable: a developer must be able to explain why an implementation, abstraction, query, pattern, or best practice was chosen.
-7. No secrets, credentials, private infrastructure details, private business information, or confidential project information belongs in the public repository.
-8. Every sprint must leave a clearly identifiable part of the system in a state that could be integrated into a real backend product.
-9. Bugs discovered during review should be fixed through a normal GitHub iteration, not by silently rewriting history.
-10. A new abstraction is valuable only when its purpose and trade-offs can be justified.
+1. The project is built in co-op with Fable 5.2: AI writes code with the developer, and every change is reviewed, tested in CI, and must be explainable (see rule 5).
+2. Every sprint must be developed through GitHub using branches, commits, pull requests, review, requested changes, and merge.
+3. `ROADMAP.md` is part of the repository and must be updated as each sprint progresses.
+4. Every sprint must contain a concise implementation/review log in this file or in a linked project document.
+5. Backend decisions must be explainable: a developer must be able to explain why an implementation, abstraction, query, pattern, or best practice was chosen.
+6. No secrets, credentials, private infrastructure details, private business information, or confidential project information belongs in the public repository.
+7. Every sprint must leave a clearly identifiable part of the system in a state that could be integrated into a real backend product.
+8. Bugs discovered during review should be fixed through a normal GitHub iteration, not by silently rewriting history.
+9. A new abstraction is valuable only when its purpose and trade-offs can be justified.
 
 ---
 
