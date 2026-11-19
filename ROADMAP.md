@@ -87,24 +87,24 @@ The implementation must use Django class-based views and must treat AI interacti
 
 ## Tasks
 
-- [ ] Integrate LM Studio through its OpenAI-compatible API.
-- [ ] Keep endpoint/model configuration outside source code.
-- [ ] Implement the AI integration using an explicit service boundary rather than coupling the HTTP client directly to templates.
-- [ ] Use a class-based view for the feature.
-- [ ] Investigate synchronous versus asynchronous execution and choose an appropriate approach for the Django deployment model.
-- [ ] Handle long AI response times appropriately.
-- [ ] Add timeouts.
-- [ ] Handle connection failures, malformed responses, and other expected exceptions.
-- [ ] Persist the AI response in the database.
-- [ ] Persist the model identifier and other relevant response metadata.
-- [ ] Persist token usage when the provider supplies it.
-- [ ] Distinguish input, output, cached, and total usage where the API actually exposes those values.
-- [ ] Preserve enough metadata to understand how a response was generated.
-- [ ] Build a basic AI-usage page.
-- [ ] Aggregate total input/output/cached/total token usage with Django ORM queries.
-- [ ] Investigate how prior messages can be sent to the model as OpenAI-style `messages` context.
-- [ ] Avoid inventing token counts when the provider does not report them.
-- [ ] Add tests for successful responses and failure paths.
+- [x] Integrate LM Studio through its OpenAI-compatible API.
+- [x] Keep endpoint/model configuration outside source code.
+- [x] Implement the AI integration using an explicit service boundary rather than coupling the HTTP client directly to templates.
+- [x] Use a class-based view for the feature.
+- [x] Investigate synchronous versus asynchronous execution and choose an appropriate approach for the Django deployment model.
+- [x] Handle long AI response times appropriately.
+- [x] Add timeouts.
+- [x] Handle connection failures, malformed responses, and other expected exceptions.
+- [x] Persist the AI response in the database.
+- [x] Persist the model identifier and other relevant response metadata.
+- [x] Persist token usage when the provider supplies it.
+- [x] Distinguish input, output, cached, and total usage where the API actually exposes those values.
+- [x] Preserve enough metadata to understand how a response was generated.
+- [x] Build a basic AI-usage page.
+- [x] Aggregate total input/output/cached/total token usage with Django ORM queries.
+- [x] Investigate how prior messages can be sent to the model as OpenAI-style `messages` context.
+- [x] Avoid inventing token counts when the provider does not report them.
+- [x] Add tests for successful responses and failure paths.
 - [ ] Open a pull request and resolve review feedback.
 
 ## Engineering Focus
@@ -122,12 +122,12 @@ The implementation must use Django class-based views and must treat AI interacti
 
 ## Investigation Questions
 
-- [ ] What exactly does async improve in this deployment architecture?
-- [ ] When does async fail to provide the expected benefit?
-- [ ] What should happen when LM Studio is unavailable?
-- [ ] Which token metrics are authoritative and which are derived?
-- [ ] Where should AI-client logic live and why?
-- [ ] Which data belongs in a database field versus computed properties or metadata?
+- [x] What exactly does async improve in this deployment architecture?
+- [x] When does async fail to provide the expected benefit?
+- [x] What should happen when LM Studio is unavailable?
+- [x] Which token metrics are authoritative and which are derived?
+- [x] Where should AI-client logic live and why?
+- [x] Which data belongs in a database field versus computed properties or metadata?
 
 ## Real-World Readiness
 
@@ -135,11 +135,11 @@ The implementation must use Django class-based views and must treat AI interacti
 
 ## Sprint Completion Notes
 
-- Status: `Not Started`
-- Review: TBD
-- Main lessons: TBD
-- Architecture decisions: TBD
-- Follow-up issues: TBD
+- Status: Done (pending PR review)
+- Review: Pending PR creation and review
+- Main lessons: Synchronous execution with strict timeouts under WSGI avoids complex event loop overhead while maintaining reliability; decoupling the AI client via an explicit service layer with custom exception handling guarantees the view never returns 500 errors; single-query ORM aggregation efficiently calculates multi-metric token usage without unnecessary database round-trips.
+- Architecture decisions: Retained synchronous views with timeout protection for WSGI; adopted PRG pattern with django.contrib.messages for AI responses; persisted authoritative token metrics directly in database fields with NULL support.
+- Follow-up issues: PR not opened yet.
 
 ---
 

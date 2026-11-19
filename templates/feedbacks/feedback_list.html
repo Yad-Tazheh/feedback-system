@@ -44,6 +44,10 @@
     <button type="button">ثبت جدید</button>
 </a>
 
+<a href="{% url 'ai_usage' %}">
+    <button type="button">گزارش مصرف هوش مصنوعی</button>
+</a>
+
 
 <table border="1">
     <thead>
@@ -80,14 +84,16 @@
         {% endfor %}
     </tbody>
 </table>
-{% if ai_response %}
+{% if messages %}
 <div id="aiPopup" class="popup-overlay">
     <div class="popup">
         <button class="close-btn" onclick="closePopup()">×</button>
 
         <h2>پاسخ سیستم</h2>
 
-        <p>{{ ai_response }}</p>
+        {% for message in messages %}
+            <p>{{ message }}</p>
+        {% endfor %}
 
         <button onclick="closePopup()">متوجه شدم</button>
     </div>
@@ -95,7 +101,10 @@
 
 <script>
     function closePopup() {
-        document.getElementById("aiPopup").style.display = "none";
+        var popup = document.getElementById("aiPopup");
+        if (popup) {
+            popup.style.display = "none";
+        }
     }
 </script>
 {% endif %}

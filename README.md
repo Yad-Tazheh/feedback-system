@@ -66,6 +66,8 @@ LM_MODEL=your-model-name
 LM_TEMPERATURE=0.4
 
 LM_MAX_TOKENS=150
+
+LM_TIMEOUT=60
 ```
 
 ---

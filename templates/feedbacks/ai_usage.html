@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>گزارش مصرف هوش مصنوعی</title>
+</head>
+<body>
+
+<h1>گزارش مصرف و وضعیت هوش مصنوعی</h1>
+
+<table border="1">
+    <thead>
+        <tr>
+            <th>عنوان شاخص</th>
+            <th>مقدار</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr>
+            <td>تعداد پاسخ‌های موفق</td>
+            <td>{{ usage.ok_count|default:0 }}</td>
+        </tr>
+        <tr>
+            <td>تعداد خطاهای هوش مصنوعی</td>
+            <td>{{ usage.failed_count|default:0 }}</td>
+        </tr>
+        <tr>
+            <td>مجموع توکن‌های ورودی (Prompt Tokens)</td>
+            <td>{{ usage.prompt_tokens|default:0 }}</td>
+        </tr>
+        <tr>
+            <td>مجموع توکن‌های خروجی (Completion Tokens)</td>
+            <td>{{ usage.completion_tokens|default:0 }}</td>
+        </tr>
+        <tr>
+            <td>مجموع توکن‌های کش‌شده (Cached Tokens)</td>
+            <td>{{ usage.cached_tokens|default:0 }}</td>
+        </tr>
+        <tr>
+            <td>مجموع کل توکن‌ها (Total Tokens)</td>
+            <td>{{ usage.total_tokens|default:0 }}</td>
+        </tr>
+    </tbody>
+</table>
+
+<br>
+<a href="{% url 'feedback_list' %}">بازگشت به لیست بازخوردها</a>
+
+</body>
+</html>
