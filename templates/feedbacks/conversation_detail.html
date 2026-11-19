@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <style>
+    .popup-overlay {
+        position: fixed;
+        inset: 0;
+        background: rgba(0, 0, 0, 0.5);
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 1000;
+    }
+
+    .popup {
+        position: relative;
+        background: white;
+        padding: 30px;
+        width: 400px;
+        max-width: 90%;
+        border-radius: 10px;
+        text-align: right;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+    }
+
+    .close-btn {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        border: none;
+        background: none;
+        font-size: 24px;
+        cursor: pointer;
+    }
+
+    .message-box {
+        margin: 10px 0;
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid #ddd;
+    }
+
+    .message-user {
+        background-color: #f0f7ff;
+        border-color: #bcd4f0;
+    }
+
+    .message-assistant {
+        background-color: #f4fbf4;
+        border-color: #bfe5bf;
+    }
+
+    .message-expert {
+        background-color: #fff9e6;
+        border-color: #fce2a6;
+    }
+
+    .message-failed {
+        background-color: #fff2f2;
+        border-color: #f0b8b8;
+    }
+
+    .message-header {
+        font-weight: bold;
+        margin-bottom: 5px;
+        font-size: 0.9em;
+        color: #555;
+    }
+
+    .message-content {
+        white-space: pre-wrap;
+    }
+
+    .action-bar {
+        margin: 15px 0;
+        padding: 10px;
+        background-color: #f9f9f9;
+        border-radius: 6px;
+        border: 1px solid #eee;
+    }
+
+    .action-bar form {
+        display: inline-block;
+        margin-left: 8px;
+    }
+    </style>
+    <meta charset="UTF-8">
+    <title>{{ conversation.title }}</title>
+</head>
+<body>
+
+<h1>{{ conversation.title }}</h1>
+<div style="margin-bottom: 15px;">
+    {% if user.is_authenticated %}
+        <span>کاربر: <strong>{{ user.username }}</strong></span> |
+        <form method="post" action="{% url 'logout' %}" style="display: inline;">
+            {% csrf_token %}
+            <button type="submit">خروج</button>
+        </form>
+    {% endif %}
+</div>
+<p>
+    <strong>نوع:</strong> {{ conversation.get_type_display }} |
+    <strong>وضعیت:</strong> <span style="font-weight: bold;">{{ conversation.get_status_display }}</span> |
+    <strong>کارشناس:</strong> <span>{{ conversation.expert.username|default:"تخصیص نیافته" }}</span> |
+    <strong>تاریخ ایجاد:</strong> {{ conversation.created_at }}
+</p>
+
+<div>
+    <a href="{% url 'feedback_list' %}">بازگشت به لیست گفتگوها</a>
+    | <a href="{% url 'expert_queue' %}">صف بررسی کارشناسان</a>
+</div>
+
+{% if can_request_expert or can_claim or can_release or can_close %}
+<div class="action-bar">
+    <strong>عملیات گردش‌کار:</strong>
+    {% if can_request_expert %}
+        <form method="post" action="{% url 'conversation_request_expert' conversation.pk %}">
+            {% csrf_token %}
+            <button type="submit">درخواست کارشناس</button>
+        </form>
+    {% endif %}
+    {% if can_claim %}
+        <form method="post" action="{% url 'conversation_claim' conversation.pk %}">
+            {% csrf_token %}
+            <button type="submit" style="background-color: #e8f5e9;">پذیرش گفتگو (کارشناس)</button>
+        </form>
+    {% endif %}
+    {% if can_release %}
+        <form method="post" action="{% url 'conversation_release' conversation.pk %}">
+            {% csrf_token %}
+            <button type="submit" style="background-color: #fff3e0;">ارجاع مجدد به هوش مصنوعی</button>
+        </form>
+    {% endif %}
+    {% if can_close %}
+        <form method="post" action="{% url 'conversation_close' conversation.pk %}">
+            {% csrf_token %}
+            <button type="submit" style="background-color: #ffebee; color: #c62828;">بستن گفتگو</button>
+        </form>
+    {% endif %}
+</div>
+{% endif %}
+
+<hr>
+
+<h2>پیام‌ها</h2>
+<div id="messages-container">
+    {% for msg in messages_list %}
+    <div class="message-box {% if msg.role == 'user' %}message-user{% elif msg.role == 'expert' %}message-expert{% elif msg.ai_status == 'failed' %}message-failed{% else %}message-assistant{% endif %}">
+        <div class="message-header">
+            {{ msg.get_role_display }}{% if msg.author %} ({{ msg.author.username }}){% endif %} - {{ msg.created_at }}
+            {% if msg.ai_model %} ({{ msg.ai_model }}){% endif %}
+        </div>
+        <div class="message-content">
+            {% if msg.ai_status == 'failed' %}
+                <span style="color: red;">خطا در دریافت پاسخ هوش مصنوعی: {{ msg.ai_error }}</span>
+            {% else %}
+                {{ msg.content }}
+            {% endif %}
+        </div>
+    </div>
+    {% empty %}
+    <p>هیچ پیامی در این گفتگو وجود ندارد.</p>
+    {% endfor %}
+</div>
+
+<hr>
+
+{% if conversation.status == 'closed' %}
+    <p style="color: #c62828; font-weight: bold; padding: 12px; background: #ffebee; border-radius: 6px;">
+        این گفتگو بسته شده است و امکان ارسال پیام جدید در آن وجود ندارد.
+    </p>
+{% elif can_post %}
+    <h3>ارسال پیام جدید</h3>
+    {% if conversation.status == 'ai' and conversation.owner == user %}
+        <p style="color: #666; font-size: 0.9em;">
+            نکته: برای درخواست ورود کارشناس، می‌توانید پیام خود را با عبارت <code>@expert</code> آغاز کنید یا از دکمه «درخواست کارشناس» بالا استفاده نمایید.
+        </p>
+    {% endif %}
+    <form method="post">
+        {% csrf_token %}
+        {{ form.as_p }}
+        <button type="submit">ارسال</button>
+    </form>
+{% endif %}
+
+{% if messages %}
+<div id="aiPopup" class="popup-overlay">
+    <div class="popup">
+        <button class="close-btn" onclick="closePopup()">×</button>
+
+        <h2>پاسخ سیستم</h2>
+
+        {% for message in messages %}
+            <p>{{ message }}</p>
+        {% endfor %}
+
+        <button onclick="closePopup()">متوجه شدم</button>
+    </div>
+</div>
+
+<script>
+    function closePopup() {
+        var popup = document.getElementById("aiPopup");
+        if (popup) {
+            popup.style.display = "none";
+        }
+    }
+</script>
+{% endif %}
+
+</body>
+</html>

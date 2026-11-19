@@ -40,27 +40,52 @@
 
 <h1>درخواست‌ها، انتقادات و پیشنهادات</h1>
 
+<div style="margin-bottom: 15px;">
+    {% if user.is_authenticated %}
+        <span>کاربر: <strong>{{ user.username }}</strong></span> |
+        <form method="post" action="{% url 'logout' %}" style="display: inline;">
+            {% csrf_token %}
+            <button type="submit">خروج</button>
+        </form>
+    {% else %}
+        <a href="{% url 'login' %}">ورود</a> |
+        <a href="{% url 'signup' %}">ثبت‌نام</a>
+    {% endif %}
+</div>
+
 <a href="{% url 'feedback_create' %}">
     <button type="button">ثبت جدید</button>
 </a>
 
+<a href="{% url 'ai_usage' %}">
+    <button type="button">گزارش مصرف هوش مصنوعی</button>
+</a>
 
-<table border="1">
+<a href="{% url 'expert_queue' %}">
+    <button type="button" style="background-color: #e3f2fd; font-weight: bold;">صف کارشناسان</button>
+</a>
+
+<table border="1" style="margin-top: 15px; border-collapse: collapse; width: 100%;">
     <thead>
         <tr>
             <th>نوع</th>
             <th>عنوان</th>
-            <th>متن</th>
+            <th>وضعیت</th>
+            <th>کارشناس</th>
+            <th>تعداد پیام‌ها</th>
             <th>تاریخ ثبت</th>
+            <th>عملیات</th>
         </tr>
     </thead>
 
     <tbody>
-        {% for item in feedbacks %}
+        {% for item in conversations %}
         <tr>
             <td>{{ item.get_type_display }}</td>
-            <td>{{ item.title }}</td>
-            <td>{{ item.text }}</td>
+            <td><a href="{% url 'conversation_detail' item.pk %}">{{ item.title }}</a></td>
+            <td>{{ item.get_status_display }}</td>
+            <td>{{ item.expert.username|default:"-" }}</td>
+            <td>{{ item.message_count }}</td>
             <td>{{ item.created_at }}</td>
             <td>
                 <a href="{% url 'feedback_update' item.pk %}">
@@ -70,24 +95,26 @@
                 <a href="{% url 'feedback_delete' item.pk %}">
                     حذف
                 </a>
-
             </td>
         </tr>
         {% empty %}
         <tr>
-            <td colspan="4">هنوز موردی ثبت نشده است.</td>
+            <td colspan="7">هنوز موردی ثبت نشده است.</td>
         </tr>
         {% endfor %}
     </tbody>
 </table>
-{% if ai_response %}
+
+{% if messages %}
 <div id="aiPopup" class="popup-overlay">
     <div class="popup">
         <button class="close-btn" onclick="closePopup()">×</button>
 
         <h2>پاسخ سیستم</h2>
 
-        <p>{{ ai_response }}</p>
+        {% for message in messages %}
+            <p>{{ message }}</p>
+        {% endfor %}
 
         <button onclick="closePopup()">متوجه شدم</button>
     </div>
@@ -95,7 +122,10 @@
 
 <script>
     function closePopup() {
-        document.getElementById("aiPopup").style.display = "none";
+        var popup = document.getElementById("aiPopup");
+        if (popup) {
+            popup.style.display = "none";
+        }
     }
 </script>
 {% endif %}

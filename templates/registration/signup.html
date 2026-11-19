@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>ثبت‌نام</title>
+</head>
+<body>
+
+<h1>ثبت‌نام کاربر جدید</h1>
+
+{% if form.errors %}
+<p style="color: red;">لطفاً خطاهای زیر را اصلاح کنید.</p>
+{% endif %}
+
+<form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">ثبت‌نام</button>
+</form>
+
+<p>قبلاً ثبت‌نام کرده‌اید؟ <a href="{% url 'login' %}">وارد شوید</a></p>
+
+</body>
+</html>

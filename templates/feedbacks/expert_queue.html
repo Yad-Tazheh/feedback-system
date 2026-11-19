@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <style>
+    body {
+        font-family: sans-serif;
+        padding: 20px;
+        line-height: 1.6;
+    }
+    table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 10px;
+        margin-bottom: 25px;
+    }
+    th, td {
+        border: 1px solid #ddd;
+        padding: 8px 12px;
+        text-align: right;
+    }
+    th {
+        background-color: #f2f2f2;
+    }
+    .badge {
+        padding: 4px 8px;
+        border-radius: 4px;
+        font-size: 0.85em;
+        font-weight: bold;
+    }
+    .badge-waiting {
+        background-color: #fff3e0;
+        color: #e65100;
+    }
+    .badge-active {
+        background-color: #e8f5e9;
+        color: #2e7d32;
+    }
+    button {
+        cursor: pointer;
+        padding: 4px 10px;
+        border-radius: 4px;
+        border: 1px solid #ccc;
+    }
+    .btn-claim {
+        background-color: #e8f5e9;
+        border-color: #a5d6a7;
+        color: #1b5e20;
+    }
+    .btn-release {
+        background-color: #fff3e0;
+        border-color: #ffcc80;
+        color: #e65100;
+    }
+    .btn-close {
+        background-color: #ffebee;
+        border-color: #ef9a9a;
+        color: #c62828;
+    }
+    </style>
+    <meta charset="UTF-8">
+    <title>صف کارشناسان</title>
+</head>
+<body>
+
+<h1>صف بررسی و مداخله کارشناسان</h1>
+
+<div style="margin-bottom: 15px;">
+    {% if user.is_authenticated %}
+        <span>کارشناس: <strong>{{ user.username }}</strong></span> |
+        <a href="{% url 'feedback_list' %}">بازگشت به لیست عمومی گفتگوها</a> |
+        <form method="post" action="{% url 'logout' %}" style="display: inline;">
+            {% csrf_token %}
+            <button type="submit">خروج</button>
+        </form>
+    {% endif %}
+</div>
+
+{% if messages %}
+    <div style="margin-bottom: 15px; padding: 10px; background-color: #e8f5e9; border: 1px solid #c8e6c9; border-radius: 4px;">
+        {% for message in messages %}
+            <p style="margin: 0;">{{ message }}</p>
+        {% endfor %}
+    </div>
+{% endif %}
+
+<h2>۱. صف گفتگوهای در انتظار کارشناس (Waiting Queue)</h2>
+<p>گفتگوهایی که کاربر در آن‌ها تقاضای بررسی کارشناس انسانی کرده است:</p>
+<table>
+    <thead>
+        <tr>
+            <th>شناسه</th>
+            <th>عنوان</th>
+            <th>نوع</th>
+            <th>کاربر ثبت‌کننده</th>
+            <th>تعداد پیام‌ها</th>
+            <th>تاریخ ثبت</th>
+            <th>عملیات</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in waiting_conversations %}
+        <tr>
+            <td>{{ item.pk }}</td>
+            <td><a href="{% url 'conversation_detail' item.pk %}">{{ item.title }}</a></td>
+            <td>{{ item.get_type_display }}</td>
+            <td>{{ item.owner.username|default:"نامشخص" }}</td>
+            <td>{{ item.message_count }}</td>
+            <td>{{ item.created_at }}</td>
+            <td>
+                <a href="{% url 'conversation_detail' item.pk %}">مشاهده</a>
+                {% if item.owner != user %}
+                |
+                <form method="post" action="{% url 'conversation_claim' item.pk %}" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn-claim">پذیرش گفتگو</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="7">هیچ گفتگویی در انتظار کارشناس وجود ندارد.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+<h2>۲. گفتگوهای در حال بررسی ({% if user.is_staff %}همه کارشناسان{% else %}اختصاص‌یافته به شما{% endif %})</h2>
+<table>
+    <thead>
+        <tr>
+            <th>شناسه</th>
+            <th>عنوان</th>
+            <th>نوع</th>
+            <th>کاربر</th>
+            <th>کارشناس مسئول</th>
+            <th>تعداد پیام‌ها</th>
+            <th>آخرین بروزرسانی</th>
+            <th>عملیات</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for item in assigned_conversations %}
+        <tr>
+            <td>{{ item.pk }}</td>
+            <td><a href="{% url 'conversation_detail' item.pk %}">{{ item.title }}</a></td>
+            <td>{{ item.get_type_display }}</td>
+            <td>{{ item.owner.username|default:"نامشخص" }}</td>
+            <td><strong>{{ item.expert.username }}</strong></td>
+            <td>{{ item.message_count }}</td>
+            <td>{{ item.updated_at }}</td>
+            <td>
+                <a href="{% url 'conversation_detail' item.pk %}">پاسخ و مشاهده</a>
+                {% if item.expert == user %}
+                |
+                <form method="post" action="{% url 'conversation_release' item.pk %}" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn-release">ارجاع به هوش مصنوعی</button>
+                </form>
+                {% endif %}
+                {% if item.expert == user or user.is_staff %}
+                |
+                <form method="post" action="{% url 'conversation_close' item.pk %}" style="display: inline;">
+                    {% csrf_token %}
+                    <button type="submit" class="btn-close">بستن گفتگو</button>
+                </form>
+                {% endif %}
+            </td>
+        </tr>
+        {% empty %}
+        <tr>
+            <td colspan="8">هیچ گفتگوی فعالی تحت بررسی وجود ندارد.</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+
+</body>
+</html>
