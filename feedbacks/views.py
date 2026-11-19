@@ -25,7 +25,7 @@ from .services.replies import create_ai_reply
 
 class OwnedConversationMixin:
     def get_queryset(self):
-        return Conversation.objects.filter(owner=self.request.user)
+        return Conversation.objects.for_user(self.request.user)
 
 
 class FeedbackListView(LoginRequiredMixin, OwnedConversationMixin, ListView):
@@ -36,7 +36,7 @@ class FeedbackListView(LoginRequiredMixin, OwnedConversationMixin, ListView):
     def get_queryset(self):
         return (
             super().get_queryset()
-            .annotate(message_count=Count('messages'))
+            .with_message_count()
             .order_by('-created_at')
         )
 
@@ -87,6 +87,9 @@ class ConversationDetailView(LoginRequiredMixin, OwnedConversationMixin, DetailV
     model = Conversation
     template_name = 'feedbacks/conversation_detail.html'
     context_object_name = 'conversation'
+
+    def get_queryset(self):
+        return super().get_queryset().prefetch_related('messages')
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)

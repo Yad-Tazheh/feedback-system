@@ -50,25 +50,18 @@ uv sync
 
 # 🔐 Environment Configuration
 
-Create a `.env` file in the project root:
+Copy the provided `.env.example` template to `.env` in the project root:
 
+```bash
+cp .env.example .env
 ```
-.env
-```
 
-Add the following variables:
+All configurable environment variables are documented in `.env.example`:
 
-```env
-LM_STUDIO_URL=http://localhost:1234/v1/chat/completions
-
-LM_MODEL=your-model-name
-
-LM_TEMPERATURE=0.4
-
-LM_MAX_TOKENS=150
-
-LM_TIMEOUT=60
-```
+- **AI Service:** `LM_STUDIO_URL`, `LM_MODEL`, `LM_TEMPERATURE`, `LM_MAX_TOKENS`, `LM_TIMEOUT`
+- **Django Settings:** `DJANGO_SETTINGS_MODULE` (`feedback_system.settings.dev` for development, `feedback_system.settings.prod` for production)
+- **Production Secrets:** `DJANGO_SECRET_KEY`, `DJANGO_ALLOWED_HOSTS`, `DJANGO_CSRF_TRUSTED_ORIGINS`
+- **Logging & Storage:** `DJANGO_LOG_LEVEL`, `DJANGO_DB_PATH`, `DJANGO_SECURE_SSL_REDIRECT`
 
 ---
 
@@ -201,6 +194,16 @@ AI Assistant Message
 ```
 01-feedback-system/
 
+├── feedback_system/
+│   ├── settings/
+│   │   ├── __init__.py
+│   │   ├── base.py
+│   │   ├── dev.py
+│   │   └── prod.py
+│   ├── urls.py
+│   ├── wsgi.py
+│   └── asgi.py
+│
 ├── feedbacks/
 │   ├── models.py
 │   ├── views.py
@@ -215,8 +218,10 @@ AI Assistant Message
 │       └── feedback_response.txt
 │
 ├── templates/
-│   └── feedbacks/
+│   ├── feedbacks/
+│   └── registration/
 │
+├── .env.example
 ├── .env
 ├── manage.py
 ├── pyproject.toml

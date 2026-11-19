@@ -273,23 +273,23 @@ The focus shifts from feature delivery toward maintainability, correctness, secu
 
 ## Tasks
 
-- [ ] Audit the existing project for maintainability and architectural problems.
-- [ ] Research relevant Django and Python best practices using primary or high-quality technical sources.
-- [ ] Separate development and production configuration appropriately.
-- [ ] Establish a clean settings/configuration structure.
-- [ ] Remove hard-coded secrets and environment-specific values.
-- [ ] Review logging configuration.
-- [ ] Review error handling and failure visibility.
-- [ ] Review database configuration and production readiness.
-- [ ] Review static/media handling.
-- [ ] Review security-related Django settings.
-- [ ] Review model architecture and abstraction boundaries.
-- [ ] Introduce model methods, properties, custom querysets/managers, metadata, validators, constraints, or other Python/Django mechanisms only where justified.
-- [ ] Inspect and improve inefficient ORM queries.
-- [ ] Add indexes or constraints where evidence supports them.
-- [ ] Add or improve tests around behavior changed during hardening.
-- [ ] Document important architectural decisions.
-- [ ] For every significant best-practice change, explain the problem, evidence, chosen solution, and trade-off.
+- [x] Audit the existing project for maintainability and architectural problems.
+- [x] Research relevant Django and Python best practices using primary or high-quality technical sources.
+- [x] Separate development and production configuration appropriately.
+- [x] Establish a clean settings/configuration structure.
+- [x] Remove hard-coded secrets and environment-specific values.
+- [x] Review logging configuration.
+- [x] Review error handling and failure visibility.
+- [x] Review database configuration and production readiness.
+- [x] Review static/media handling.
+- [x] Review security-related Django settings.
+- [x] Review model architecture and abstraction boundaries.
+- [x] Introduce model methods, properties, custom querysets/managers, metadata, validators, constraints, or other Python/Django mechanisms only where justified.
+- [x] Inspect and improve inefficient ORM queries.
+- [x] Add indexes or constraints where evidence supports them.
+- [x] Add or improve tests around behavior changed during hardening.
+- [x] Document important architectural decisions.
+- [x] For every significant best-practice change, explain the problem, evidence, chosen solution, and trade-off.
 - [ ] Open a pull request and resolve review feedback.
 
 ## Engineering Focus
@@ -324,13 +324,13 @@ For every meaningful change:
 
 ## Sprint Completion Notes
 
-- Status: `Not Started`
-- PR: TBD
-- Review: TBD
-- Main lessons: TBD
-- Best-practice findings: TBD
-- Architectural decisions: TBD
-- Follow-up issues: TBD
+- Status: Done (pending PR review)
+- PR: Pending PR creation and review
+- Review: Pending PR creation and review
+- Main lessons: Splitting settings into base/dev/prod isolates deployment security checks from developer ergonomics; burning exposed secrets and strictly validating them via `ImproperlyConfigured` prevents production misconfiguration; structured logging with sanitized parameters (`logger.exception`) gives full failure visibility without leaking sensitive prompt or conversation PII.
+- Best-practice findings: Ensuring single leading system message aligns with modern LLM chat templates that reject multiple mid-history system prompts; encapsulating domain filters in `ConversationQuerySet` (`for_user`, `with_message_count`) cleans view code; `prefetch_related('messages')` eliminates N+1 queries on conversation detail.
+- Architectural decisions: Modular settings package (`base.py`, `dev.py`, `prod.py`); `manage.py` defaults to `.dev`, `wsgi`/`asgi` default to `.prod`; composite index `(owner, -created_at)` for optimal list sorting; strict deploy check compliance (`check --deploy --fail-level WARNING`).
+- Follow-up issues: PR not opened yet.
 
 ---
 

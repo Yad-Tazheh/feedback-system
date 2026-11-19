@@ -2,6 +2,14 @@ from django.conf import settings
 from django.db import models
 
 
+class ConversationQuerySet(models.QuerySet):
+    def for_user(self, user):
+        return self.filter(owner=user)
+
+    def with_message_count(self):
+        return self.annotate(message_count=models.Count('messages'))
+
+
 class Conversation(models.Model):
     TYPE_CHOICES = [
         ('request', 'درخواست'),
@@ -21,19 +29,27 @@ class Conversation(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    objects = ConversationQuerySet.as_manager()
+
+    class Meta:
+        indexes = [
+            models.Index(
+                fields=['owner', '-created_at'],
+                name='conv_owner_created_idx',
+            ),
+        ]
+
     def __str__(self):
         return f"{self.get_type_display()}: {self.title}"
 
+    def get_context_prompt(self):
+        return f"نوع پیام: {self.get_type_display()}\nعنوان: {self.title}"
+
     def as_messages(self):
-        context_message = {
-            'role': 'system',
-            'content': f"نوع پیام: {self.get_type_display()}\nعنوان: {self.title}",
-        }
-        history = [
+        return [
             {'role': msg.role, 'content': msg.content}
             for msg in self.messages.exclude(ai_status='failed')
         ]
-        return [context_message] + history
 
 
 class Message(models.Model):

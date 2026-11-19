@@ -58,12 +58,24 @@ class AIService:
                 f"System prompt file not found or unreadable: {prompt_path}"
             ) from exc
 
-    def generate(self, messages):
+    def generate(self, messages, context: Optional[str] = None):
         if not self.url or not self.model:
             raise AIServiceError("LM_STUDIO_URL and LM_MODEL must be configured.")
 
-        msg_list = list(messages)
-        full_messages = [{"role": "system", "content": self.system_prompt}] + msg_list
+        system_content = self.system_prompt
+        if context:
+            system_content = f"{self.system_prompt.strip()}\n\n{context.strip()}"
+
+        msg_list = []
+        for m in messages:
+            if isinstance(m, dict) and m.get('role') == 'system':
+                extra = m.get('content', '').strip()
+                if extra:
+                    system_content = f"{system_content}\n\n{extra}"
+            else:
+                msg_list.append(m)
+
+        full_messages = [{"role": "system", "content": system_content}] + msg_list
 
         payload = {
             "model": self.model,

@@ -1,3 +1,5 @@
+import subprocess
+import sys
 from unittest.mock import Mock, patch
 from requests.exceptions import ConnectionError, HTTPError, Timeout
 
@@ -158,22 +160,21 @@ class ConversationModelTest(TestCase):
         )
 
         history = conv.as_messages()
-        self.assertEqual(len(history), 5)
-        self.assertEqual(history[0]['role'], 'system')
-        self.assertIn('درخواست', history[0]['content'])
-        self.assertIn('تست تاریخچه', history[0]['content'])
-        self.assertEqual(history[1], {'role': 'user', 'content': 'سلام'})
-        self.assertEqual(history[2], {'role': 'assistant', 'content': 'سلام! چطور کمکتون کنم؟'})
-        self.assertEqual(history[3], {'role': 'user', 'content': 'سؤال من این است'})
-        self.assertEqual(history[4], {'role': 'assistant', 'content': 'پاسخ دوم موفق'})
+        self.assertEqual(len(history), 4)
+        self.assertEqual(history[0], {'role': 'user', 'content': 'سلام'})
+        self.assertEqual(history[1], {'role': 'assistant', 'content': 'سلام! چطور کمکتون کنم؟'})
+        self.assertEqual(history[2], {'role': 'user', 'content': 'سؤال من این است'})
+        self.assertEqual(history[3], {'role': 'assistant', 'content': 'پاسخ دوم موفق'})
 
-    def test_as_messages_includes_type_and_title(self):
+    def test_as_messages_returns_history_only_and_context_separate(self):
         conv = Conversation.objects.create(type='criticism', title='انتقاد تستی')
         Message.objects.create(conversation=conv, role=Message.Role.USER, content='متن کاربر')
         msgs = conv.as_messages()
-        self.assertEqual(msgs[0]['role'], 'system')
-        self.assertIn('انتقاد', msgs[0]['content'])
-        self.assertIn('انتقاد تستی', msgs[0]['content'])
+        self.assertEqual(len(msgs), 1)
+        self.assertEqual(msgs[0], {'role': 'user', 'content': 'متن کاربر'})
+        context = conv.get_context_prompt()
+        self.assertIn('انتقاد', context)
+        self.assertIn('انتقاد تستی', context)
 
 
 class MessageModelTest(TestCase):
@@ -487,11 +488,11 @@ class ConversationDetailViewTest(TestCase):
         # Ensure full history and context was passed to AI
         mock_generate.assert_called_once()
         sent_messages = mock_generate.call_args[0][0]
-        self.assertEqual(len(sent_messages), 3)
-        self.assertEqual(sent_messages[0]['role'], 'system')
-        self.assertIn('گفتگوی من', sent_messages[0]['content'])
-        self.assertEqual(sent_messages[1]['content'], 'پیام اول کاربر')
-        self.assertEqual(sent_messages[2]['content'], 'پیام دوم کاربر')
+        sent_context = mock_generate.call_args[1].get('context', '')
+        self.assertEqual(len(sent_messages), 2)
+        self.assertIn('گفتگوی من', sent_context)
+        self.assertEqual(sent_messages[0]['content'], 'پیام اول کاربر')
+        self.assertEqual(sent_messages[1]['content'], 'پیام دوم کاربر')
 
     @patch('feedbacks.services.replies.AIService.generate')
     def test_conversation_detail_post_ai_failure_stores_failed_and_redirects(self, mock_generate):
@@ -994,7 +995,185 @@ class AuthenticationAndAuthorizationTest(TestCase):
             title='پیشنهاد برای سامانه',
         )
         Message.objects.create(conversation=conv, role=Message.Role.USER, content='پیام اولیه')
-        msgs = conv.as_messages()
-        self.assertEqual(msgs[0]['role'], 'system')
-        self.assertIn('پیشنهاد', msgs[0]['content'])
-        self.assertIn('پیشنهاد برای سامانه', msgs[0]['content'])
+        context = conv.get_context_prompt()
+        self.assertIn('پیشنهاد', context)
+        self.assertIn('پیشنهاد برای سامانه', context)
+
+
+class SingleLeadingSystemMessageTests(TestCase):
+
+    @patch('feedbacks.services.ai_service.requests.post')
+    def test_generate_merges_prompt_and_context_into_single_system_message(self, mock_post):
+        mock_response = Mock()
+        mock_response.json.return_value = {
+            'choices': [{'message': {'content': 'پاسخ هوش مصنوعی'}}],
+            'model': 'qwen-test',
+            'usage': {'prompt_tokens': 10, 'completion_tokens': 10, 'total_tokens': 20},
+        }
+        mock_post.return_value = mock_response
+
+        ai = AIService()
+        ai.url = 'http://localhost:1234/v1/chat/completions'
+        ai.model = 'qwen-test'
+        history = [
+            {'role': 'user', 'content': 'سلام'},
+            {'role': 'assistant', 'content': 'درود'},
+            {'role': 'user', 'content': 'سوال بعدی'},
+        ]
+        context = "نوع پیام: درخواست\nعنوان: عنوان تستی"
+
+        ai.generate(history, context=context)
+
+        self.assertTrue(mock_post.called)
+        sent_payload = mock_post.call_args[1]['json']
+        sent_messages = sent_payload['messages']
+
+        # Total messages: 1 system + 3 history
+        self.assertEqual(len(sent_messages), 4)
+
+        # Leading message is system and contains both prompt and conversation context
+        self.assertEqual(sent_messages[0]['role'], 'system')
+        self.assertIn("نوع پیام: درخواست", sent_messages[0]['content'])
+        self.assertIn("عنوان: عنوان تستی", sent_messages[0]['content'])
+
+        # No subsequent messages are system messages
+        system_msgs = [m for m in sent_messages if m['role'] == 'system']
+        self.assertEqual(len(system_msgs), 1)
+
+        # History messages retain role and content
+        self.assertEqual(sent_messages[1], {'role': 'user', 'content': 'سلام'})
+        self.assertEqual(sent_messages[2], {'role': 'assistant', 'content': 'درود'})
+        self.assertEqual(sent_messages[3], {'role': 'user', 'content': 'سوال بعدی'})
+
+
+class ProdSettingsTests(TestCase):
+
+    def test_prod_settings_raise_without_secret_key(self):
+        cmd = [
+            sys.executable,
+            '-c',
+            (
+                'import os; '
+                'os.environ.pop("DJANGO_SECRET_KEY", None); '
+                'os.environ["DJANGO_SETTINGS_MODULE"] = "feedback_system.settings.prod"; '
+                'import django; '
+                'django.setup()'
+            )
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn("ImproperlyConfigured", proc.stderr)
+        self.assertIn("DJANGO_SECRET_KEY", proc.stderr)
+
+    def test_prod_settings_with_secret_key_and_allowed_hosts(self):
+        cmd = [
+            sys.executable,
+            '-c',
+            (
+                'import os; '
+                'os.environ["DJANGO_SECRET_KEY"] = "dummy-secret-key-for-test-xyz"; '
+                'os.environ["DJANGO_ALLOWED_HOSTS"] = "example.com,app.example.com"; '
+                'os.environ["DJANGO_SETTINGS_MODULE"] = "feedback_system.settings.prod"; '
+                'from django.conf import settings; '
+                'print(settings.DEBUG, settings.SESSION_COOKIE_SECURE, settings.CSRF_COOKIE_SECURE, settings.SECURE_HSTS_SECONDS, settings.ALLOWED_HOSTS)'
+            )
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        self.assertEqual(proc.returncode, 0)
+        self.assertIn("False True True 31536000", proc.stdout)
+        self.assertIn("['example.com', 'app.example.com']", proc.stdout)
+
+
+class LoggingAndFailureVisibilityTests(TestCase):
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='loguser', password='password')
+        self.conv = Conversation.objects.create(
+            owner=self.user,
+            type='request',
+            title='تست لاگ خطا محرمانه',
+        )
+
+    @patch('feedbacks.services.replies.AIService.generate')
+    def test_ai_service_error_logged_without_pii(self, mock_generate):
+        mock_generate.side_effect = AIServiceError("Connection to LM Studio timed out")
+        with self.assertLogs('feedbacks.services.replies', level='ERROR') as cm:
+            msg = create_ai_reply(self.conv)
+
+        self.assertEqual(msg.ai_status, Message.AIStatus.FAILED)
+        self.assertIn("Connection to LM Studio timed out", msg.ai_error)
+
+        # Check log output: contains conversation id and exception class
+        expected_msg = f"AI service failed for conversation {self.conv.pk}: AIServiceError"
+        self.assertTrue(any(expected_msg in log for log in cm.output))
+
+        # Check no conversation title or prompt content in the log message
+        for log in cm.output:
+            self.assertNotIn("تست لاگ خطا محرمانه", log)
+
+    @patch('feedbacks.services.replies.AIService.generate')
+    def test_unexpected_error_logged(self, mock_generate):
+        mock_generate.side_effect = RuntimeError("Fatal crash in parser")
+        with self.assertLogs('feedbacks.services.replies', level='ERROR') as cm:
+            msg = create_ai_reply(self.conv)
+
+        self.assertEqual(msg.ai_status, Message.AIStatus.FAILED)
+        expected_msg = f"Unexpected error during AI reply for conversation {self.conv.pk}: RuntimeError"
+        self.assertTrue(any(expected_msg in log for log in cm.output))
+
+
+class ConversationQuerySetTests(TestCase):
+
+    def setUp(self):
+        self.u1 = User.objects.create_user(username='user1', password='p1')
+        self.u2 = User.objects.create_user(username='user2', password='p2')
+        self.c1 = Conversation.objects.create(owner=self.u1, type='request', title='C1')
+        self.c2 = Conversation.objects.create(owner=self.u2, type='criticism', title='C2')
+        Message.objects.create(conversation=self.c1, role=Message.Role.USER, content='M1')
+        Message.objects.create(conversation=self.c1, role=Message.Role.ASSISTANT, content='M2')
+
+    def test_for_user_filters_correctly(self):
+        self.assertEqual(list(Conversation.objects.for_user(self.u1)), [self.c1])
+        self.assertEqual(list(Conversation.objects.for_user(self.u2)), [self.c2])
+
+    def test_with_message_count_annotates_correctly(self):
+        annotated_c1 = Conversation.objects.with_message_count().get(pk=self.c1.pk)
+        annotated_c2 = Conversation.objects.with_message_count().get(pk=self.c2.pk)
+        self.assertEqual(annotated_c1.message_count, 2)
+        self.assertEqual(annotated_c2.message_count, 0)
+
+
+class QueryCountTests(TestCase):
+
+    def setUp(self):
+        self.user = User.objects.create_user(username='qcuser', password='password')
+        for i in range(5):
+            c = Conversation.objects.create(
+                owner=self.user,
+                type='request',
+                title=f'گفتگو {i}',
+            )
+            Message.objects.create(conversation=c, role=Message.Role.USER, content=f'پیام {i}')
+        self.detail_conv = Conversation.objects.first()
+        for j in range(3):
+            Message.objects.create(
+                conversation=self.detail_conv,
+                role=Message.Role.ASSISTANT,
+                content=f'پاسخ {j}',
+                ai_status=Message.AIStatus.OK,
+            )
+
+    def test_feedback_list_query_count(self):
+        self.client.force_login(self.user)
+        # Expected queries: session lookup, user lookup, 1 annotated conversation query
+        with self.assertNumQueries(3):
+            response = self.client.get(reverse('feedback_list'))
+            self.assertEqual(response.status_code, 200)
+
+    def test_conversation_detail_query_count(self):
+        self.client.force_login(self.user)
+        # Expected queries: session lookup, user lookup, conversation query, prefetched messages query
+        with self.assertNumQueries(4):
+            response = self.client.get(reverse('conversation_detail', args=[self.detail_conv.pk]))
+            self.assertEqual(response.status_code, 200)
+
