@@ -201,5 +201,134 @@ In `prod.py`, `SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')` is
 ### Production Database Decision
 `prod.py` defaults to SQLite located at `DJANGO_DB_PATH` or `BASE_DIR / 'db.sqlite3'`. Migrating to PostgreSQL or MySQL requires a driver dependency (`psycopg` / `mysqlclient`), which would alter `uv.lock`. In accordance with sprint constraints (zero new dependencies in `uv.lock`), production SQLite is retained and PostgreSQL migration is documented as a follow-up deployment milestone.
 
+-------------------------------------------
+## Sprint 06 — Expert Role, Permissions & Intervention Workflow
+
+### Schema Diagram (Multi-Actor Subsystem)
+
+```
+┌─────────────────────────────────┐
+│          Conversation           │
+├─────────────────────────────────┤
+│ id: BigAutoField (PK)           │
+│ owner_id: FK(User, null=True)   │
+│ expert_id: FK(User, null=True)  │
+│ status: CharField(20) [ai/wait..│
+│ type: CharField(20)             │
+│ title: CharField(200)           │
+│ created_at: DateTimeField       │
+│ updated_at: DateTimeField       │
+└────────────────┬────────────────┘
+                 │ 1
+                 │
+                 │ *
+┌────────────────▼────────────────┐
+│             Message             │
+├─────────────────────────────────┤
+│ id: BigAutoField (PK)           │
+│ conversation_id: FK(CASCADE)    │
+│ author_id: FK(User, null=True)  │
+│ role: CharField(20) [u/asst/exp]│
+│ content: TextField              │
+│ created_at: DateTimeField       │
+│ ai_model: CharField(100)        │
+│ prompt_tokens: PosInt(null)     │
+│ completion_tokens: PosInt(null) │
+│ cached_tokens: PosInt(null)     │
+│ total_tokens: PosInt(null)      │
+│ ai_status: CharField(20, null)  │
+│ ai_error: TextField             │
+└─────────────────────────────────┘
+Constraint: user_message_token_fields_null (applies to user & expert)
+```
+
+### State Machine & Transition Diagram
+
+```
+                ┌────────────────────────────────────────┐
+                │                                        │
+                │             [ status = ai ]            │◄──────────────┐
+                │           (AI answers messages)        │               │
+                │                                        │               │
+                └───────────────────┬────────────────────┘               │
+                                    │                                    │
+               User clicks "درخواست کارشناس"                             │
+               or starts message with "@expert"                          │
+                                    │                                    │
+                                    ▼                                    │
+                ┌────────────────────────────────────────┐               │
+                │                                        │               │
+                │       [ status = waiting_expert ]      │               │
+                │        (In queue; AI is silent)        │               │
+                │                                        │               │
+                └───────────────────┬────────────────────┘               │
+                                    │                                    │
+                             Expert claims:                              │
+                       transition_to(expert_active)                      │
+                                    │                                    │
+                                    ▼                                    │
+                ┌────────────────────────────────────────┐               │
+                │                                        │               │
+                │       [ status = expert_active ]       ├───────────────┘
+                │       (Expert answers; AI silent)      │  Expert releases:
+                │                                        │  transition_to(ai)
+                └───────────────────┬────────────────────┘
+                                    │
+                                    │ Staff closes ANY open state
+                                    │ OR assigned expert closes expert_active
+                                    │
+                                    ▼
+                ┌────────────────────────────────────────┐
+                │                                        │
+                │           [ status = closed ]          │
+                │   (Terminal state; no messages allowed)│
+                │                                        │
+                └────────────────────────────────────────┘
+```
+
+### Investigation Questions & Architectural Decisions
+
+#### 1. Should roles be represented as a fixed field, groups, permissions, or a combination?
+A hybrid approach using standard Django groups and built-in attributes was chosen:
+- **Normal user:** Authenticated user (`user.is_authenticated`).
+- **Expert:** Member of the standard Django `Group` named `experts` (`user.groups.filter(name='experts').exists()`). Using a group rather than a hardcoded user model flag allows dynamic role assignment in production through standard Django Admin, integration with external LDAP/SSO groups, and future extension to sub-specialties without schema migrations.
+- **Administrator:** Built-in Django flag `user.is_staff`.
+This cleanly leverages Django's battle-tested auth subsystem without adding custom database tables or altering `AUTH_USER_MODEL`.
+
+#### 2. Which permissions are global and which are object-level?
+- **Global Permissions:** Accessing administrative tooling (`is_staff`) and accessing the expert queue (`/expert/`, reserved for members of `experts` or `is_staff`).
+- **Object-Level Permissions:** Encapsulated in `feedbacks/permissions.py`:
+  - `can_view`: Owner can view own conversations; staff can view all; expert can view conversations in `waiting_expert` or assigned to them.
+  - `can_post`: Owner can post to any non-closed conversation; assigned expert can post to `expert_active` conversations; all other users get 404.
+  - `can_claim`: Expert can claim an unassigned conversation in `waiting_expert` (the owner cannot claim even if they are in `experts`).
+  - `can_release`: Only the assigned expert can release an `expert_active` conversation back to `ai`.
+  - `can_close`: Staff can close any open conversation; assigned expert can close assigned conversations.
+
+#### 3. How should expert participation be represented in the database?
+- **Conversation Level:** `Conversation.expert` foreign key (nullable) points to the assigned expert user (`settings.AUTH_USER_MODEL`, `on_delete=models.SET_NULL`). It is populated on `claim`, cleared on `release`, and retained if closed from an active state for auditability.
+- **Message Level:** `Message.Role` adds `expert`, and `Message.author` records the authenticated user who wrote the message (both for `user` and `expert` roles). AI-generated messages have `author=None`. This records precise individual authorship across multiple turns.
+- **CheckConstraint:** The existing token `CheckConstraint` is updated so that messages with role in `('user', 'expert')` must have null token metrics, reserving token counters strictly for `assistant` messages.
+
+#### 4. What precisely causes the AI to answer or stay silent?
+The AI response pipeline (`create_ai_reply`) is invoked ONLY when:
+1. `conversation.status == Conversation.Status.AI`, AND
+2. The incoming message does not begin with the human intervention trigger `@expert`.
+In any other state (`waiting_expert`, `expert_active`, `closed`), or when `@expert` is triggered, the AI remains strictly silent. Furthermore, in `as_messages()`, previous expert messages are mapped to role `assistant` when building LLM history, ensuring that the model understands expert interventions as part of system guidance if a conversation is subsequently released back to AI.
+
+#### 5. Which state transitions are valid and which must be rejected?
+All transitions are strictly validated and executed by `Conversation.transition_to(new_status, by_user)`:
+- **Valid Transitions:**
+  - `ai -> waiting_expert`: Requested by owner (or staff) via button click or `@expert` prefix.
+  - `waiting_expert -> expert_active`: Claimed by an authenticated expert who is not the conversation owner.
+  - `expert_active -> ai`: Released back to AI exclusively by the assigned expert.
+  - `(ai | waiting_expert | expert_active) -> closed`: Closed by staff or the assigned expert.
+- **Rejected Transitions (raises ValidationError):**
+  - Attempting to transition from `closed` (closed is a terminal state).
+  - Attempting to transition to the current status.
+  - Skipping states (e.g. `ai -> expert_active` directly).
+  - Reverse invalid transitions (e.g. `expert_active -> waiting_expert` or `waiting_expert -> ai`).
+  - Transitions attempted by unauthorized actors (e.g. non-expert claiming, owner claiming own thread, unassigned expert releasing, regular user closing).
+
+
 
 

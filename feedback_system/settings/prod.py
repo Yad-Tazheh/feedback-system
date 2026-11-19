@@ -39,22 +39,3 @@ MAILERS = {
         ),
     },
 }
-
-# Database
-# Production defaults to SQLite at DJANGO_DB_PATH (or BASE_DIR/db.sqlite3).
-# PostgreSQL migration requires driver dependency (psycopg) and is documented for future phase.
-db_path = os.getenv('DJANGO_DB_PATH')
-if db_path:
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': Path(db_path),
-        }
-    }
-else:
-    DATABASES = {
-        'default': {
-            'ENGINE': 'django.db.backends.sqlite3',
-            'NAME': BASE_DIR / 'db.sqlite3',
-        }
-    }

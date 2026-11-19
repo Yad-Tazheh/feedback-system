@@ -344,21 +344,21 @@ The application must distinguish ordinary users, experts, and administrators whi
 
 ## Tasks
 
-- [ ] Define the role model for user, expert, and administrator capabilities.
-- [ ] Separate authentication from authorization explicitly.
-- [ ] Implement backend-enforced permissions.
-- [ ] Prevent unauthorized access even when an endpoint is called directly.
-- [ ] Introduce expert assignment/intervention concepts where needed.
-- [ ] Model expert participation in conversations relationally.
-- [ ] Define when an expert can join a conversation.
-- [ ] Define when the AI should respond automatically.
-- [ ] Define when the AI should remain silent because an expert is handling the interaction.
-- [ ] Define how explicit user requests can address an expert.
-- [ ] Define the state transitions around expert intervention.
-- [ ] Update the message/conversation models only as required by the new domain rules.
-- [ ] Add authorization tests for user, expert, and administrator actions.
-- [ ] Add workflow tests for AI/expert interaction.
-- [ ] Update Django Admin for expert-related management.
+- [x] Define the role model for user, expert, and administrator capabilities.
+- [x] Separate authentication from authorization explicitly.
+- [x] Implement backend-enforced permissions.
+- [x] Prevent unauthorized access even when an endpoint is called directly.
+- [x] Introduce expert assignment/intervention concepts where needed.
+- [x] Model expert participation in conversations relationally.
+- [x] Define when an expert can join a conversation.
+- [x] Define when the AI should respond automatically.
+- [x] Define when the AI should remain silent because an expert is handling the interaction.
+- [x] Define how explicit user requests can address an expert.
+- [x] Define the state transitions around expert intervention.
+- [x] Update the message/conversation models only as required by the new domain rules.
+- [x] Add authorization tests for user, expert, and administrator actions.
+- [x] Add workflow tests for AI/expert interaction.
+- [x] Update Django Admin for expert-related management.
 - [ ] Open a pull request and resolve review feedback.
 
 ## Engineering Focus
@@ -374,11 +374,11 @@ The application must distinguish ordinary users, experts, and administrators whi
 
 ## Investigation Questions
 
-- [ ] Should roles be represented as a fixed field, groups, permissions, or a combination?
-- [ ] Which permissions are global and which are object-level?
-- [ ] How should expert participation be represented in the database?
-- [ ] What precisely causes the AI to answer or stay silent?
-- [ ] Which state transitions are valid and which must be rejected?
+- [x] Should roles be represented as a fixed field, groups, permissions, or a combination?
+- [x] Which permissions are global and which are object-level?
+- [x] How should expert participation be represented in the database?
+- [x] What precisely causes the AI to answer or stay silent?
+- [x] Which state transitions are valid and which must be rejected?
 
 ## Real-World Readiness
 
@@ -386,13 +386,13 @@ The application must distinguish ordinary users, experts, and administrators whi
 
 ## Sprint Completion Notes
 
-- Status: `Not Started`
-- PR: TBD
-- Review: TBD
-- Main lessons: TBD
-- Authorization findings: TBD
-- Workflow decisions: TBD
-- Follow-up issues: TBD
+- Status: Done (pending PR review)
+- PR: Pending PR creation and review
+- Review: Pending PR creation and review
+- Main lessons: State transitions and intervention logic must be modeled directly as explicit domain methods (`transition_to`) with backend validation; permission logic is most maintainable when consolidated in a dedicated module (`feedbacks/permissions.py`); human expert answers must be seamlessly mapped to `assistant` in multi-turn AI context.
+- Authorization findings: Unifying authorization checks and returning HTTP 404 (instead of 403) protects conversation existence and state against discovery and direct manipulation across all endpoints (`/expert/`, `/c/<pk>/claim/`, `/c/<pk>/release/`, `/c/<pk>/close/`, `/c/<pk>/request-expert/`).
+- Workflow decisions: Standard Django `experts` Group defines expert capability; conversation status machine transitions strictly from `ai` to `waiting_expert` on user request/@expert trigger, to `expert_active` upon claim, to `ai` upon release, and to `closed` as terminal state; AI remains strictly silent whenever an expert is requested or active.
+- Follow-up issues: PR not opened yet.
 
 ---
 
@@ -442,20 +442,20 @@ Copy this structure into the relevant sprint section when the sprint begins/comp
 
 By the end of this roadmap, the project should demonstrate that its developer can:
 
-- [ ] Understand and extend an existing Django codebase.
-- [ ] Design relational models without unnecessary duplication.
-- [ ] Write effective Django ORM queries.
-- [ ] Integrate and operate external AI services safely.
-- [ ] Reason about async/concurrency and latency rather than using async blindly.
-- [ ] Handle failure paths and external-service uncertainty.
-- [ ] Build authentication and authorization correctly.
-- [ ] Design domain workflows with explicit states and rules.
-- [ ] Write maintainable Python/Django abstractions.
-- [ ] Research best practices independently and explain trade-offs.
-- [ ] Write automated tests and regression tests.
-- [ ] Build a documented API.
-- [ ] Work professionally through GitHub pull requests and code review.
-- [ ] Prepare a backend for real integration and deployment.
+- [x] Understand and extend an existing Django codebase.
+- [x] Design relational models without unnecessary duplication.
+- [x] Write effective Django ORM queries.
+- [x] Integrate and operate external AI services safely.
+- [x] Reason about async/concurrency and latency rather than using async blindly.
+- [x] Handle failure paths and external-service uncertainty.
+- [x] Build authentication and authorization correctly.
+- [x] Design domain workflows with explicit states and rules.
+- [x] Write maintainable Python/Django abstractions.
+- [x] Research best practices independently and explain trade-offs.
+- [x] Write automated tests and regression tests.
+- [ ] Build a documented API. (Deferred: REST/GraphQL API specification and endpoints scheduled for a dedicated API phase)
+- [ ] Work professionally through GitHub pull requests and code review. (Deferred: GitHub PR/branch review workflow deferred by project owner)
+- [x] Prepare a backend for real integration and deployment.
 
 The final standard is not simply “the code works.”
 

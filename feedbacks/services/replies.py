@@ -32,28 +32,9 @@ def create_ai_reply(conversation, request=None):
         if request is not None:
             messages.success(request, result.content)
         return assistant_message
-    except AIServiceError as exc:
-        logger.exception(
-            "AI service failed for conversation %s: %s",
-            conversation.pk,
-            type(exc).__name__,
-        )
-        assistant_message = Message.objects.create(
-            conversation=conversation,
-            role=Message.Role.ASSISTANT,
-            content='',
-            ai_status=Message.AIStatus.FAILED,
-            ai_error=str(exc),
-        )
-        if request is not None:
-            messages.error(
-                request,
-                'خطا در برقراری ارتباط با سرویس هوش مصنوعی.'
-            )
-        return assistant_message
     except Exception as exc:
         logger.exception(
-            "Unexpected error during AI reply for conversation %s: %s",
+            "AI service failed for conversation %s: %s",
             conversation.pk,
             type(exc).__name__,
         )

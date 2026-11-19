@@ -7,6 +7,11 @@ from .views import (
     FeedbackDeleteView,
     ConversationDetailView,
     AIUsageView,
+    ExpertQueueView,
+    RequestExpertView,
+    ClaimConversationView,
+    ReleaseConversationView,
+    CloseConversationView,
 )
 
 urlpatterns = [
@@ -16,4 +21,9 @@ urlpatterns = [
     path('delete/<int:pk>/', FeedbackDeleteView.as_view(), name='feedback_delete'),
     path('c/<int:pk>/', ConversationDetailView.as_view(), name='conversation_detail'),
     path('usage/', AIUsageView.as_view(), name='ai_usage'),
+    path('expert/', ExpertQueueView.as_view(), name='expert_queue'),
+    path('c/<int:pk>/request-expert/', RequestExpertView.as_view(), name='conversation_request_expert'),
+    path('c/<int:pk>/claim/', ClaimConversationView.as_view(), name='conversation_claim'),
+    path('c/<int:pk>/release/', ReleaseConversationView.as_view(), name='conversation_release'),
+    path('c/<int:pk>/close/', CloseConversationView.as_view(), name='conversation_close'),
 ]

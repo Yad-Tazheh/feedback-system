@@ -7,6 +7,7 @@ class MessageInline(admin.TabularInline):
     extra = 0
     fields = (
         'role',
+        'author',
         'content',
         'ai_model',
         'ai_status',
@@ -34,11 +35,23 @@ class ConversationAdmin(admin.ModelAdmin):
     list_display = (
         'title',
         'type',
+        'status',
         'owner',
+        'expert',
         'created_at',
         'updated_at',
     )
-    list_filter = ('owner', 'type')
-    search_fields = ('title', 'owner__username')
-    list_select_related = ('owner',)
+    list_filter = ('status', 'expert', 'owner', 'type')
+    search_fields = ('title', 'owner__username', 'expert__username')
+    list_select_related = ('owner', 'expert')
+    actions = ['close_selected']
     inlines = [MessageInline]
+
+    @admin.action(description="بستن گفتگوهای انتخاب‌شده")
+    def close_selected(self, request, queryset):
+        count = 0
+        for conv in queryset:
+            if conv.status != Conversation.Status.CLOSED:
+                conv.transition_to(Conversation.Status.CLOSED, request.user)
+                count += 1
+        self.message_user(request, f"{count} گفتگو با موفقیت بسته شد.")

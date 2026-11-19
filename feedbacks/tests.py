@@ -3,8 +3,9 @@ import sys
 from unittest.mock import Mock, patch
 from requests.exceptions import ConnectionError, HTTPError, Timeout
 
-from django.contrib.auth.models import User
+from django.contrib.auth.models import Group, User
 from django.contrib.messages import get_messages
+from django.core.exceptions import ValidationError
 from django.db import connection, IntegrityError
 from django.db.migrations.executor import MigrationExecutor
 from django.test import TestCase, TransactionTestCase
@@ -18,6 +19,15 @@ from .forms import (
     MessageForm,
 )
 from .models import Conversation, Message
+from .permissions import (
+    can_claim,
+    can_close,
+    can_post,
+    can_release,
+    can_request_expert,
+    can_view,
+    is_expert,
+)
 from .services.ai_service import AIService, AIServiceError, AIResult
 from .services.replies import create_ai_reply
 
@@ -1118,7 +1128,7 @@ class LoggingAndFailureVisibilityTests(TestCase):
             msg = create_ai_reply(self.conv)
 
         self.assertEqual(msg.ai_status, Message.AIStatus.FAILED)
-        expected_msg = f"Unexpected error during AI reply for conversation {self.conv.pk}: RuntimeError"
+        expected_msg = f"AI service failed for conversation {self.conv.pk}: RuntimeError"
         self.assertTrue(any(expected_msg in log for log in cm.output))
 
 
@@ -1176,4 +1186,498 @@ class QueryCountTests(TestCase):
         with self.assertNumQueries(4):
             response = self.client.get(reverse('conversation_detail', args=[self.detail_conv.pk]))
             self.assertEqual(response.status_code, 200)
+
+
+class RoleAndPermissionTests(TestCase):
+    def setUp(self):
+        self.expert_group, _ = Group.objects.get_or_create(name='experts')
+        self.owner = User.objects.create_user(username='owner', password='pw')
+        self.other_user = User.objects.create_user(username='other', password='pw')
+        self.expert = User.objects.create_user(username='expert1', password='pw')
+        self.expert.groups.add(self.expert_group)
+        self.expert2 = User.objects.create_user(username='expert2', password='pw')
+        self.expert2.groups.add(self.expert_group)
+        self.staff = User.objects.create_user(username='staff', password='pw', is_staff=True)
+
+        self.conv_ai = Conversation.objects.create(owner=self.owner, type='request', title='Conv AI', status=Conversation.Status.AI)
+        self.conv_waiting = Conversation.objects.create(owner=self.owner, type='request', title='Conv Waiting', status=Conversation.Status.WAITING_EXPERT)
+        self.conv_active = Conversation.objects.create(owner=self.owner, expert=self.expert, type='request', title='Conv Active', status=Conversation.Status.EXPERT_ACTIVE)
+        self.conv_closed = Conversation.objects.create(owner=self.owner, expert=self.expert, type='request', title='Conv Closed', status=Conversation.Status.CLOSED)
+
+    def test_is_expert(self):
+        self.assertTrue(is_expert(self.expert))
+        self.assertFalse(is_expert(self.owner))
+        self.assertFalse(is_expert(self.staff))
+        self.assertFalse(is_expert(None))
+
+    def test_can_view(self):
+        # Owner can view all their conversations
+        self.assertTrue(can_view(self.owner, self.conv_ai))
+        self.assertTrue(can_view(self.owner, self.conv_waiting))
+        self.assertTrue(can_view(self.owner, self.conv_active))
+        self.assertTrue(can_view(self.owner, self.conv_closed))
+
+        # Staff can view everything
+        self.assertTrue(can_view(self.staff, self.conv_ai))
+        self.assertTrue(can_view(self.staff, self.conv_waiting))
+        self.assertTrue(can_view(self.staff, self.conv_active))
+        self.assertTrue(can_view(self.staff, self.conv_closed))
+
+        # Expert can view waiting and assigned
+        self.assertTrue(can_view(self.expert, self.conv_waiting))
+        self.assertTrue(can_view(self.expert, self.conv_active))
+        self.assertTrue(can_view(self.expert, self.conv_closed))
+        self.assertFalse(can_view(self.expert, self.conv_ai))
+        self.assertFalse(can_view(self.expert2, self.conv_active))
+
+        # Unrelated user cannot view
+        self.assertFalse(can_view(self.other_user, self.conv_ai))
+        self.assertFalse(can_view(self.other_user, self.conv_waiting))
+        self.assertFalse(can_view(self.other_user, self.conv_active))
+
+    def test_can_post(self):
+        # Owner can post on open conversations
+        self.assertTrue(can_post(self.owner, self.conv_ai))
+        self.assertTrue(can_post(self.owner, self.conv_waiting))
+        self.assertTrue(can_post(self.owner, self.conv_active))
+        self.assertFalse(can_post(self.owner, self.conv_closed))
+
+        # Assigned expert can post on expert_active
+        self.assertTrue(can_post(self.expert, self.conv_active))
+        self.assertFalse(can_post(self.expert, self.conv_waiting))
+        self.assertFalse(can_post(self.expert, self.conv_ai))
+        self.assertFalse(can_post(self.expert, self.conv_closed))
+        self.assertFalse(can_post(self.expert2, self.conv_active))
+
+        # Staff cannot post unless assigned expert or owner
+        self.assertFalse(can_post(self.staff, self.conv_active))
+
+    def test_can_claim(self):
+        self.assertTrue(can_claim(self.expert, self.conv_waiting))
+        self.assertFalse(can_claim(self.expert, self.conv_ai))
+        self.assertFalse(can_claim(self.expert, self.conv_active))
+        self.assertFalse(can_claim(self.owner, self.conv_waiting))
+        self.assertFalse(can_claim(self.other_user, self.conv_waiting))
+
+        # Owner who is also an expert cannot claim
+        self.owner.groups.add(self.expert_group)
+        self.assertFalse(can_claim(self.owner, self.conv_waiting))
+
+        # Another expert cannot claim already assigned
+        self.assertFalse(can_claim(self.expert2, self.conv_active))
+
+    def test_can_release(self):
+        self.assertTrue(can_release(self.expert, self.conv_active))
+        self.assertFalse(can_release(self.expert2, self.conv_active))
+        self.assertFalse(can_release(self.owner, self.conv_active))
+        self.assertFalse(can_release(self.expert, self.conv_waiting))
+        self.assertFalse(can_release(self.expert, self.conv_closed))
+
+    def test_can_close(self):
+        # Staff can close any open conversation
+        self.assertTrue(can_close(self.staff, self.conv_ai))
+        self.assertTrue(can_close(self.staff, self.conv_waiting))
+        self.assertTrue(can_close(self.staff, self.conv_active))
+        self.assertFalse(can_close(self.staff, self.conv_closed))
+
+        # Assigned expert can close assigned
+        self.assertTrue(can_close(self.expert, self.conv_active))
+        self.assertFalse(can_close(self.expert, self.conv_ai))
+        self.assertFalse(can_close(self.expert2, self.conv_active))
+
+        # Owner cannot close
+        self.assertFalse(can_close(self.owner, self.conv_active))
+        self.assertFalse(can_close(self.owner, self.conv_ai))
+
+
+class TransitionTests(TestCase):
+    def setUp(self):
+        self.expert_group, _ = Group.objects.get_or_create(name='experts')
+        self.owner = User.objects.create_user(username='towner', password='pw')
+        self.other_user = User.objects.create_user(username='tother', password='pw')
+        self.expert = User.objects.create_user(username='texpert', password='pw')
+        self.expert.groups.add(self.expert_group)
+        self.expert2 = User.objects.create_user(username='texpert2', password='pw')
+        self.expert2.groups.add(self.expert_group)
+        self.staff = User.objects.create_user(username='tstaff', password='pw', is_staff=True)
+
+    def test_allowed_transitions(self):
+        # 1. ai -> waiting_expert by owner
+        c = Conversation.objects.create(owner=self.owner, type='request', title='T1', status=Conversation.Status.AI)
+        c.transition_to(Conversation.Status.WAITING_EXPERT, self.owner)
+        self.assertEqual(c.status, Conversation.Status.WAITING_EXPERT)
+        self.assertIsNone(c.expert)
+
+        # 2. waiting_expert -> expert_active by expert
+        c.transition_to(Conversation.Status.EXPERT_ACTIVE, self.expert)
+        self.assertEqual(c.status, Conversation.Status.EXPERT_ACTIVE)
+        self.assertEqual(c.expert, self.expert)
+
+        # 3. expert_active -> ai by assigned expert
+        c.transition_to(Conversation.Status.AI, self.expert)
+        self.assertEqual(c.status, Conversation.Status.AI)
+        self.assertIsNone(c.expert)
+
+        # 4. ai -> closed by staff
+        c.transition_to(Conversation.Status.CLOSED, self.staff)
+        self.assertEqual(c.status, Conversation.Status.CLOSED)
+
+        # 5. waiting_expert -> closed by staff
+        c2 = Conversation.objects.create(owner=self.owner, type='request', title='T2', status=Conversation.Status.WAITING_EXPERT)
+        c2.transition_to(Conversation.Status.CLOSED, self.staff)
+        self.assertEqual(c2.status, Conversation.Status.CLOSED)
+
+        # 6. expert_active -> closed by assigned expert
+        c3 = Conversation.objects.create(owner=self.owner, expert=self.expert, type='request', title='T3', status=Conversation.Status.EXPERT_ACTIVE)
+        c3.transition_to(Conversation.Status.CLOSED, self.expert)
+        self.assertEqual(c3.status, Conversation.Status.CLOSED)
+
+    def test_rejected_transitions_raise_validation_error(self):
+        c = Conversation.objects.create(owner=self.owner, type='request', title='T_fail', status=Conversation.Status.AI)
+
+        # Cannot jump ai -> expert_active directly
+        with self.assertRaises(ValidationError):
+            c.transition_to(Conversation.Status.EXPERT_ACTIVE, self.expert)
+
+        # Non-owner cannot request expert
+        with self.assertRaises(ValidationError):
+            c.transition_to(Conversation.Status.WAITING_EXPERT, self.other_user)
+
+        # Transition to same status rejected
+        with self.assertRaises(ValidationError):
+            c.transition_to(Conversation.Status.AI, self.owner)
+
+        # Transition to waiting_expert
+        c.transition_to(Conversation.Status.WAITING_EXPERT, self.owner)
+
+        # Non-expert cannot claim
+        with self.assertRaises(ValidationError):
+            c.transition_to(Conversation.Status.EXPERT_ACTIVE, self.other_user)
+
+        # Owner cannot claim even if in experts group
+        self.owner.groups.add(self.expert_group)
+        with self.assertRaises(ValidationError):
+            c.transition_to(Conversation.Status.EXPERT_ACTIVE, self.owner)
+
+        # Cannot jump waiting_expert -> ai
+        with self.assertRaises(ValidationError):
+            c.transition_to(Conversation.Status.AI, self.expert)
+
+        # Claim
+        c.transition_to(Conversation.Status.EXPERT_ACTIVE, self.expert)
+
+        # Another expert cannot claim already active
+        with self.assertRaises(ValidationError):
+            c.transition_to(Conversation.Status.EXPERT_ACTIVE, self.expert2)
+
+        # Unassigned expert cannot release
+        with self.assertRaises(ValidationError):
+            c.transition_to(Conversation.Status.AI, self.expert2)
+
+        # Normal user cannot close
+        with self.assertRaises(ValidationError):
+            c.transition_to(Conversation.Status.CLOSED, self.owner)
+
+        # Close by assigned expert
+        c.transition_to(Conversation.Status.CLOSED, self.expert)
+
+        # Closed is terminal: cannot transition anywhere
+        with self.assertRaises(ValidationError):
+            c.transition_to(Conversation.Status.AI, self.staff)
+        with self.assertRaises(ValidationError):
+            c.transition_to(Conversation.Status.WAITING_EXPERT, self.owner)
+        with self.assertRaises(ValidationError):
+            c.transition_to(Conversation.Status.EXPERT_ACTIVE, self.expert)
+        with self.assertRaises(ValidationError):
+            c.transition_to(Conversation.Status.CLOSED, self.staff)
+
+
+class AsMessagesSprint06Tests(TestCase):
+    def test_as_messages_maps_expert_to_assistant(self):
+        c = Conversation.objects.create(type='request', title='Map Test')
+        Message.objects.create(conversation=c, role=Message.Role.USER, content='User msg')
+        Message.objects.create(conversation=c, role=Message.Role.EXPERT, content='Expert msg')
+        Message.objects.create(conversation=c, role=Message.Role.ASSISTANT, content='AI msg', ai_status=Message.AIStatus.OK)
+        Message.objects.create(conversation=c, role=Message.Role.ASSISTANT, content='Failed AI msg', ai_status=Message.AIStatus.FAILED)
+
+        messages = c.as_messages()
+        self.assertEqual(len(messages), 3)
+        self.assertEqual(messages[0], {'role': 'user', 'content': 'User msg'})
+        self.assertEqual(messages[1], {'role': 'assistant', 'content': 'Expert msg'})
+        self.assertEqual(messages[2], {'role': 'assistant', 'content': 'AI msg'})
+
+
+class ExpertWorkflowAITests(TestCase):
+    def setUp(self):
+        self.expert_group, _ = Group.objects.get_or_create(name='experts')
+        self.user = User.objects.create_user(username='wfuser', password='password')
+        self.expert = User.objects.create_user(username='wfexpert', password='password')
+        self.expert.groups.add(self.expert_group)
+
+    @patch('feedbacks.views.create_ai_reply')
+    def test_create_view_with_at_expert_skips_ai(self, mock_reply):
+        self.client.force_login(self.user)
+        response = self.client.post(reverse('feedback_create'), {
+            'type': 'request',
+            'title': 'درخواست با کارشناس',
+            'text': '@expert سلام لطفاً کارشناس بررسی نماید',
+        })
+        self.assertEqual(response.status_code, 302)
+        conv = Conversation.objects.get(title='درخواست با کارشناس')
+        self.assertEqual(conv.status, Conversation.Status.WAITING_EXPERT)
+        self.assertEqual(conv.owner, self.user)
+        msg = conv.messages.first()
+        self.assertEqual(msg.role, Message.Role.USER)
+        self.assertEqual(msg.author, self.user)
+        mock_reply.assert_not_called()
+
+    @patch('feedbacks.views.create_ai_reply')
+    def test_detail_view_with_at_expert_transitions_and_skips_ai(self, mock_reply):
+        conv = Conversation.objects.create(owner=self.user, type='request', title='Conv 1', status=Conversation.Status.AI)
+        self.client.force_login(self.user)
+        response = self.client.post(reverse('conversation_detail', args=[conv.pk]), {
+            'content': '@expert پیام کاربر به کارشناس',
+        })
+        self.assertEqual(response.status_code, 302)
+        conv.refresh_from_db()
+        self.assertEqual(conv.status, Conversation.Status.WAITING_EXPERT)
+        last_msg = conv.messages.last()
+        self.assertEqual(last_msg.role, Message.Role.USER)
+        self.assertEqual(last_msg.author, self.user)
+        mock_reply.assert_not_called()
+
+    @patch('feedbacks.views.create_ai_reply')
+    def test_detail_view_ai_silent_while_waiting_expert(self, mock_reply):
+        conv = Conversation.objects.create(owner=self.user, type='request', title='Conv Waiting', status=Conversation.Status.WAITING_EXPERT)
+        self.client.force_login(self.user)
+        response = self.client.post(reverse('conversation_detail', args=[conv.pk]), {
+            'content': 'یک پیام دیگر در حین انتظار',
+        })
+        self.assertEqual(response.status_code, 302)
+        conv.refresh_from_db()
+        self.assertEqual(conv.status, Conversation.Status.WAITING_EXPERT)
+        mock_reply.assert_not_called()
+
+    @patch('feedbacks.views.create_ai_reply')
+    def test_detail_view_ai_silent_while_expert_active(self, mock_reply):
+        conv = Conversation.objects.create(
+            owner=self.user,
+            expert=self.expert,
+            type='request',
+            title='Conv Active',
+            status=Conversation.Status.EXPERT_ACTIVE,
+        )
+        # Owner post
+        self.client.force_login(self.user)
+        response = self.client.post(reverse('conversation_detail', args=[conv.pk]), {
+            'content': 'پیام کاربر در گفتگوی فعال',
+        })
+        self.assertEqual(response.status_code, 302)
+        mock_reply.assert_not_called()
+        self.assertEqual(conv.messages.last().role, Message.Role.USER)
+
+        # Expert post
+        self.client.force_login(self.expert)
+        response2 = self.client.post(reverse('conversation_detail', args=[conv.pk]), {
+            'content': 'پاسخ کارشناس',
+        })
+        self.assertEqual(response2.status_code, 302)
+        mock_reply.assert_not_called()
+        expert_msg = conv.messages.last()
+        self.assertEqual(expert_msg.role, Message.Role.EXPERT)
+        self.assertEqual(expert_msg.author, self.expert)
+
+    @patch('feedbacks.views.create_ai_reply')
+    def test_closed_conversation_rejects_new_messages(self, mock_reply):
+        conv = Conversation.objects.create(
+            owner=self.user,
+            expert=self.expert,
+            type='request',
+            title='Conv Closed',
+            status=Conversation.Status.CLOSED,
+        )
+        self.client.force_login(self.user)
+        response = self.client.post(reverse('conversation_detail', args=[conv.pk]), {
+            'content': 'تلاش برای ارسال پیام در گفتگوی بسته',
+        })
+        self.assertEqual(response.status_code, 404)
+        mock_reply.assert_not_called()
+        self.assertEqual(conv.messages.count(), 0)
+
+
+class ExpertEndpointsAuthorizationTests(TestCase):
+    def setUp(self):
+        self.expert_group, _ = Group.objects.get_or_create(name='experts')
+        self.owner = User.objects.create_user(username='eowner', password='pw')
+        self.other_user = User.objects.create_user(username='eother', password='pw')
+        self.expert = User.objects.create_user(username='eexpert1', password='pw')
+        self.expert.groups.add(self.expert_group)
+        self.expert2 = User.objects.create_user(username='eexpert2', password='pw')
+        self.expert2.groups.add(self.expert_group)
+        self.staff = User.objects.create_user(username='estaff', password='pw', is_staff=True)
+
+    def test_request_expert_endpoint(self):
+        conv = Conversation.objects.create(owner=self.owner, type='request', title='RE Conv', status=Conversation.Status.AI)
+
+        # Other user gets 404
+        self.client.force_login(self.other_user)
+        r = self.client.post(reverse('conversation_request_expert', args=[conv.pk]))
+        self.assertEqual(r.status_code, 404)
+
+        # Owner succeeds
+        self.client.force_login(self.owner)
+        r2 = self.client.post(reverse('conversation_request_expert', args=[conv.pk]))
+        self.assertEqual(r2.status_code, 302)
+        conv.refresh_from_db()
+        self.assertEqual(conv.status, Conversation.Status.WAITING_EXPERT)
+
+    def test_claim_endpoint_authorizations(self):
+        conv = Conversation.objects.create(owner=self.owner, type='request', title='Claim Conv', status=Conversation.Status.WAITING_EXPERT)
+
+        # Owner cannot claim (returns 404)
+        self.client.force_login(self.owner)
+        r = self.client.post(reverse('conversation_claim', args=[conv.pk]))
+        self.assertEqual(r.status_code, 404)
+
+        # Non-expert cannot claim (returns 404)
+        self.client.force_login(self.other_user)
+        r2 = self.client.post(reverse('conversation_claim', args=[conv.pk]))
+        self.assertEqual(r2.status_code, 404)
+
+        # Expert claims successfully
+        self.client.force_login(self.expert)
+        r3 = self.client.post(reverse('conversation_claim', args=[conv.pk]))
+        self.assertEqual(r3.status_code, 302)
+        conv.refresh_from_db()
+        self.assertEqual(conv.status, Conversation.Status.EXPERT_ACTIVE)
+        self.assertEqual(conv.expert, self.expert)
+
+        # Another expert cannot claim already-claimed conversation (returns 404)
+        self.client.force_login(self.expert2)
+        r4 = self.client.post(reverse('conversation_claim', args=[conv.pk]))
+        self.assertEqual(r4.status_code, 404)
+
+    def test_expert_cannot_post_to_unassigned_conversation(self):
+        conv = Conversation.objects.create(owner=self.owner, type='request', title='Unassigned', status=Conversation.Status.WAITING_EXPERT)
+        self.client.force_login(self.expert)
+        r = self.client.post(reverse('conversation_detail', args=[conv.pk]), {'content': 'Expert unsolicited post'})
+        self.assertEqual(r.status_code, 404)
+
+    def test_release_endpoint(self):
+        conv = Conversation.objects.create(
+            owner=self.owner,
+            expert=self.expert,
+            type='request',
+            title='Release Conv',
+            status=Conversation.Status.EXPERT_ACTIVE,
+        )
+
+        # Another expert gets 404
+        self.client.force_login(self.expert2)
+        r = self.client.post(reverse('conversation_release', args=[conv.pk]))
+        self.assertEqual(r.status_code, 404)
+
+        # Assigned expert succeeds
+        self.client.force_login(self.expert)
+        r2 = self.client.post(reverse('conversation_release', args=[conv.pk]))
+        self.assertEqual(r2.status_code, 302)
+        conv.refresh_from_db()
+        self.assertEqual(conv.status, Conversation.Status.AI)
+        self.assertIsNone(conv.expert)
+
+    def test_close_endpoint(self):
+        conv = Conversation.objects.create(
+            owner=self.owner,
+            expert=self.expert,
+            type='request',
+            title='Close Conv',
+            status=Conversation.Status.EXPERT_ACTIVE,
+        )
+
+        # Owner cannot close
+        self.client.force_login(self.owner)
+        r = self.client.post(reverse('conversation_close', args=[conv.pk]))
+        self.assertEqual(r.status_code, 404)
+
+        # Unassigned expert cannot close
+        self.client.force_login(self.expert2)
+        r2 = self.client.post(reverse('conversation_close', args=[conv.pk]))
+        self.assertEqual(r2.status_code, 404)
+
+        # Staff can close
+        self.client.force_login(self.staff)
+        r3 = self.client.post(reverse('conversation_close', args=[conv.pk]))
+        self.assertEqual(r3.status_code, 302)
+        conv.refresh_from_db()
+        self.assertEqual(conv.status, Conversation.Status.CLOSED)
+
+    def test_expert_queue_view_access(self):
+        # Anonymous redirects to login
+        r = self.client.get(reverse('expert_queue'))
+        self.assertEqual(r.status_code, 302)
+
+        # Regular user gets 404
+        self.client.force_login(self.owner)
+        r2 = self.client.get(reverse('expert_queue'))
+        self.assertEqual(r2.status_code, 404)
+
+        # Expert gets 200
+        self.client.force_login(self.expert)
+        r3 = self.client.get(reverse('expert_queue'))
+        self.assertEqual(r3.status_code, 200)
+
+        # Staff gets 200
+        self.client.force_login(self.staff)
+        r4 = self.client.get(reverse('expert_queue'))
+        self.assertEqual(r4.status_code, 200)
+
+
+class AdminSprint06Tests(TestCase):
+    def test_admin_close_selected_action(self):
+        from .admin import ConversationAdmin
+        from django.contrib.admin.sites import AdminSite
+
+        admin_site = AdminSite()
+        conv_admin = ConversationAdmin(Conversation, admin_site)
+
+        staff = User.objects.create_user(username='adminstaff', password='pw', is_staff=True)
+        c1 = Conversation.objects.create(type='request', title='Adm 1', status=Conversation.Status.AI)
+        c2 = Conversation.objects.create(type='request', title='Adm 2', status=Conversation.Status.WAITING_EXPERT)
+        c3 = Conversation.objects.create(type='request', title='Adm 3', status=Conversation.Status.CLOSED)
+
+        request = Mock()
+        request.user = staff
+
+        qs = Conversation.objects.filter(pk__in=[c1.pk, c2.pk, c3.pk])
+        conv_admin.close_selected(request, qs)
+
+        c1.refresh_from_db()
+        c2.refresh_from_db()
+        c3.refresh_from_db()
+
+        self.assertEqual(c1.status, Conversation.Status.CLOSED)
+        self.assertEqual(c2.status, Conversation.Status.CLOSED)
+        self.assertEqual(c3.status, Conversation.Status.CLOSED)
+
+
+class TokenConstraintSprint06Tests(TestCase):
+    def test_expert_message_token_fields_null_constraint(self):
+        c = Conversation.objects.create(type='request', title='Constraint Test')
+        # Valid expert message with null tokens
+        msg = Message.objects.create(
+            conversation=c,
+            role=Message.Role.EXPERT,
+            content='Expert answer',
+        )
+        self.assertIsNotNone(msg.pk)
+
+        # Invalid expert message with prompt_tokens violates CheckConstraint
+        with self.assertRaises(IntegrityError):
+            Message.objects.create(
+                conversation=c,
+                role=Message.Role.EXPERT,
+                content='Invalid tokens',
+                prompt_tokens=10,
+            )
+
 

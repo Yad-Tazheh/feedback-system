@@ -75,6 +75,15 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 # Default primary key field type
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+# Database
+db_path = os.getenv('DJANGO_DB_PATH')
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': Path(db_path) if db_path else BASE_DIR / 'db.sqlite3',
+    }
+}
+
 # Email
 MAILERS = {
     'default': {

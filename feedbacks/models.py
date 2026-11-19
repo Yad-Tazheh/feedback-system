@@ -1,4 +1,5 @@
 from django.conf import settings
+from django.core.exceptions import ValidationError
 from django.db import models
 
 
@@ -11,6 +12,12 @@ class ConversationQuerySet(models.QuerySet):
 
 
 class Conversation(models.Model):
+    class Status(models.TextChoices):
+        AI = 'ai', 'پاسخ هوش مصنوعی'
+        WAITING_EXPERT = 'waiting_expert', 'در انتظار کارشناس'
+        EXPERT_ACTIVE = 'expert_active', 'در حال پاسخگویی کارشناس'
+        CLOSED = 'closed', 'بسته شده'
+
     TYPE_CHOICES = [
         ('request', 'درخواست'),
         ('criticism', 'انتقاد'),
@@ -23,6 +30,18 @@ class Conversation(models.Model):
         related_name='conversations',
         null=True,
         blank=True,
+    )
+    expert = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name='assigned_conversations',
+        null=True,
+        blank=True,
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.AI,
     )
     type = models.CharField(max_length=20, choices=TYPE_CHOICES)
     title = models.CharField(max_length=200)
@@ -46,16 +65,83 @@ class Conversation(models.Model):
         return f"نوع پیام: {self.get_type_display()}\nعنوان: {self.title}"
 
     def as_messages(self):
-        return [
-            {'role': msg.role, 'content': msg.content}
-            for msg in self.messages.exclude(ai_status='failed')
-        ]
+        messages = []
+        for msg in self.messages.exclude(ai_status='failed'):
+            role = 'assistant' if msg.role == Message.Role.EXPERT else msg.role
+            messages.append({'role': role, 'content': msg.content})
+        return messages
+
+    def transition_to(self, new_status, by_user, save=True):
+        """
+        State machine for conversation workflow:
+        - ai -> waiting_expert (user requested human intervention or started message with @expert)
+        - waiting_expert -> expert_active (expert claimed from queue; expert assigned)
+        - expert_active -> ai (expert released back to AI; expert cleared)
+        - any open state -> closed (closed by staff or assigned expert)
+        Reject any other transition or unauthorized attempt with a ValidationError.
+        """
+        if not by_user or not by_user.is_authenticated:
+            raise ValidationError("کاربر باید احراز هویت شده باشد.")
+
+        from feedbacks.permissions import is_expert
+
+        # Closed is a terminal state
+        if self.status == self.Status.CLOSED:
+            raise ValidationError(
+                f"گفتگوی بسته شده قابل تغییر وضعیت نیست (تلاش برای تغییر به '{new_status}')."
+            )
+
+        # Cannot transition to the identical status
+        if self.status == new_status:
+            raise ValidationError(
+                f"وضعیت گفتگو در حال حاضر '{new_status}' است."
+            )
+
+        # 1. ai -> waiting_expert
+        if self.status == self.Status.AI and new_status == self.Status.WAITING_EXPERT:
+            if not (self.owner_id == by_user.id or by_user.is_staff):
+                raise ValidationError("تنها مالک گفتگو یا مدیر سیستم می‌تواند درخواست کارشناس ثبت کند.")
+            self.status = self.Status.WAITING_EXPERT
+
+        # 2. waiting_expert -> expert_active
+        elif self.status == self.Status.WAITING_EXPERT and new_status == self.Status.EXPERT_ACTIVE:
+            if not is_expert(by_user):
+                raise ValidationError("تنها کاربران عضو گروه کارشناسان می‌توانند گفتگو را بپذیرند.")
+            if self.owner_id == by_user.id:
+                raise ValidationError("مالک گفتگو نمی‌تواند گفتگوی خود را به عنوان کارشناس بپذیرد.")
+            if self.expert_id is not None:
+                raise ValidationError("این گفتگو قبلاً توسط کارشناس دیگری پذیرفته شده است.")
+            self.status = self.Status.EXPERT_ACTIVE
+            self.expert = by_user
+
+        # 3. expert_active -> ai
+        elif self.status == self.Status.EXPERT_ACTIVE and new_status == self.Status.AI:
+            if not (is_expert(by_user) and self.expert_id == by_user.id):
+                raise ValidationError("تنها کارشناس تخصیص‌داده‌شده می‌تواند گفتگو را به هوش مصنوعی بازگرداند.")
+            self.status = self.Status.AI
+            self.expert = None
+
+        # 4. Any open state -> closed
+        elif new_status == self.Status.CLOSED:
+            is_assigned_expert = (is_expert(by_user) and self.expert_id == by_user.id)
+            if not (by_user.is_staff or is_assigned_expert):
+                raise ValidationError("تنها مدیر سیستم یا کارشناس تخصیص‌داده‌شده مجاز به بستن گفتگو هستند.")
+            self.status = self.Status.CLOSED
+
+        else:
+            raise ValidationError(
+                f"تغییر وضعیت نامعتبر از '{self.status}' به '{new_status}' توسط کاربر '{by_user.username}'."
+            )
+
+        if save:
+            self.save()
 
 
 class Message(models.Model):
     class Role(models.TextChoices):
         USER = 'user', 'کاربر'
         ASSISTANT = 'assistant', 'دستیار'
+        EXPERT = 'expert', 'کارشناس'
 
     class AIStatus(models.TextChoices):
         OK = 'ok', 'موفق'
@@ -65,6 +151,13 @@ class Message(models.Model):
         Conversation,
         on_delete=models.CASCADE,
         related_name='messages',
+    )
+    author = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name='authored_messages',
+        null=True,
+        blank=True,
     )
     role = models.CharField(
         max_length=20,
@@ -97,7 +190,7 @@ class Message(models.Model):
         constraints = [
             models.CheckConstraint(
                 condition=models.Q(role='assistant') | models.Q(
-                    role='user',
+                    role__in=['user', 'expert'],
                     prompt_tokens__isnull=True,
                     completion_tokens__isnull=True,
                     cached_tokens__isnull=True,

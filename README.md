@@ -145,6 +145,25 @@ uv run python manage.py createsuperuser
 
 ---
 
+# 👥 Expert Role Setup
+
+To enable a user to act as an expert and access the expert queue (`/expert/`):
+
+1. Log in to Django Admin at `/admin/` with a superuser account.
+2. Navigate to **Authentication and Authorization → Users** and select the target user.
+3. In the **Groups** section, add the user to the `experts` group (created automatically by migration `0009`).
+4. Save the user.
+
+Alternatively, add a user to the `experts` group via the Django shell:
+
+```bash
+uv run python manage.py shell -c "from django.contrib.auth.models import User, Group; u = User.objects.get(username='YOUR_USER'); g = Group.objects.get(name='experts'); u.groups.add(g)"
+```
+
+The user can now view the expert queue at `/expert/`, claim waiting conversations, reply as an expert, release conversations back to AI, and close resolved conversations.
+
+---
+
 # ▶️ Run Project
 
 Start Django server:

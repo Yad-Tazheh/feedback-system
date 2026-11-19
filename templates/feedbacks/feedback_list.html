@@ -61,11 +61,17 @@
     <button type="button">گزارش مصرف هوش مصنوعی</button>
 </a>
 
-<table border="1">
+<a href="{% url 'expert_queue' %}">
+    <button type="button" style="background-color: #e3f2fd; font-weight: bold;">صف کارشناسان</button>
+</a>
+
+<table border="1" style="margin-top: 15px; border-collapse: collapse; width: 100%;">
     <thead>
         <tr>
             <th>نوع</th>
             <th>عنوان</th>
+            <th>وضعیت</th>
+            <th>کارشناس</th>
             <th>تعداد پیام‌ها</th>
             <th>تاریخ ثبت</th>
             <th>عملیات</th>
@@ -77,6 +83,8 @@
         <tr>
             <td>{{ item.get_type_display }}</td>
             <td><a href="{% url 'conversation_detail' item.pk %}">{{ item.title }}</a></td>
+            <td>{{ item.get_status_display }}</td>
+            <td>{{ item.expert.username|default:"-" }}</td>
             <td>{{ item.message_count }}</td>
             <td>{{ item.created_at }}</td>
             <td>
@@ -91,7 +99,7 @@
         </tr>
         {% empty %}
         <tr>
-            <td colspan="5">هنوز موردی ثبت نشده است.</td>
+            <td colspan="7">هنوز موردی ثبت نشده است.</td>
         </tr>
         {% endfor %}
     </tbody>
