@@ -7,12 +7,12 @@
 ![Python](https://img.shields.io/badge/Python-3.14-3776AB?logo=python&logoColor=white)
 ![Django](https://img.shields.io/badge/Django-6.1-092E20?logo=django&logoColor=white)
 ![LM Studio](https://img.shields.io/badge/LLM-LM%20Studio-6d5dfc)
-![Tests](https://img.shields.io/badge/tests-86%20passing-22c55e)
+[![CI](https://github.com/Yad-Tazheh/feedback-system/actions/workflows/ci.yml/badge.svg)](https://github.com/Yad-Tazheh/feedback-system/actions/workflows/ci.yml)
 ![uv](https://img.shields.io/badge/managed%20by-uv-DE5FE9)
 
 **Users open a conversation, a local LLM replies, and a human expert can take over the chat at any time.**
 
-[Quick start](#-quick-start) · [How it works](#-how-it-works) · [Roles](#-roles) · [Configuration](#%EF%B8%8F-configuration) · [Production](#-production)
+[Specs](#-tech-specs) · [Quick start](#-quick-start) · [How it works](#-how-it-works) · [Roles](#-roles) · [Configuration](#%EF%B8%8F-configuration) · [Production](#-production)
 
 <br>
 
@@ -33,6 +33,23 @@
 | 🔐 **Accounts** | Sign up, log in, and log out (POST only). Users see only their own chats; anyone else's returns a 404 |
 | 🛡️ **Prod-ready settings** | Separate `dev` and `prod` settings, HTTPS, HSTS and secure cookies, and `check --deploy` passes with no warnings |
 | 🌐 **Persian UI** | The interface is in Persian (RTL). The code and docs are in English |
+
+## 📋 Tech specs
+
+| Area | Spec |
+|---|---|
+| 🐍 Language | Python 3.14 (pinned in `.python-version`) |
+| 🧱 Framework | Django 6.1, with class-based views and server-rendered templates |
+| 📦 Dependencies | `django`, `requests`, `python-dotenv` (that's all), locked in `uv.lock` |
+| 🗄️ Database | SQLite, with 9 migrations and indexes on owner/date and conversation/date |
+| 🤖 AI | LM Studio, or any OpenAI-compatible `chat/completions` API. Model, temperature, token limit and timeout are set in `.env` |
+| 📐 Data model | `Conversation` (type, title, status, owner, expert) → `Message` (role: user / assistant / expert, token usage) |
+| 🔄 Workflow | 4-state machine: `ai` → `waiting_expert` → `expert_active` → `closed` |
+| 🔐 Auth | Django auth: sign up, log in, POST-only log out. Permissions are checked per object, and anyone else's data returns a 404 |
+| 👥 Roles | Owner, Expert (`experts` group), Staff |
+| 🛡️ Security | Prod uses HTTPS redirect, HSTS, secure cookies and a proxy SSL header. It won't start without a secret key |
+| 🌐 UI | Persian (RTL) |
+| 🧪 Tests | 86 Django tests with the AI mocked. GitHub Actions also checks migrations and runs `check --deploy` |
 
 ## 🚀 Quick start
 
